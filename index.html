@@ -238,7 +238,10 @@ function App({onLogout}){
   async function addProf(f){const p={id:uid(),nombre:f.nombre,icono:f.icono,color:f.color};await sb.upsert("perfiles",p);await sb.upsert("cuentas",[{id:uid(),perfil_id:p.id,nombre:"Efectivo",tipo:"efectivo",color:PAL[2],saldo_inicial:0},{id:uid(),perfil_id:p.id,nombre:"Cuenta Corriente",tipo:"corriente",color:PAL[1],saldo_inicial:0}]);await sb.upsert("categorias",CATS.map(c=>({...c,id:`${p.id}_${c.id}`,perfil_id:p.id})));await reload();setPa(p.id);setModal(null);}
   async function delProf(id){if(profs.length<=1){alert("Mínimo un perfil.");return;}if(!confirm("¿Eliminar perfil y todos sus datos?"))return;await sb.del("perfiles",id);setProfs(ps=>ps.filter(p=>p.id!==id));setCtas(cs=>cs.filter(c=>c.perfil_id!==id));setCats(cs=>cs.filter(c=>c.perfil_id!==id));setMovs(ms=>ms.filter(m=>m.perfil_id!==id));if(pa===id)setPa(profs.find(p=>p.id!==id)?.id);setModal(null);}
 
-  const NAV=[{id:"dashboard",ic:"◈",lb:"Dashboard"},{id:"movimientos",ic:"≡",lb:"Movimientos"},{id:"cuentas",ic:"⬡",lb:"Cuentas"},{id:"categorias",ic:"◻",lb:"Categorías"},{id:"informe",ic:"✦",lb:"Informe"}];
+  const NAV=[{id:"dashboard",ic:"◈",lb:"Dashboard"},{id:"movimientos",ic:"≡",lb:"Movimientos"},{id:"informe",ic:"✦",lb:"Informe"}];
+  const EDIT_MENU=[{id:"cuentas",ic:"⬡",lb:"Cuentas"},{id:"categorias",ic:"◻",lb:"Categorías"}];
+  const [editOpen,setEditOpen]=useState(false);
+  useEffect(()=>{if(!editOpen)return;const fn=()=>setEditOpen(false);setTimeout(()=>document.addEventListener("click",fn),0);return()=>document.removeEventListener("click",fn);},[editOpen]);
 
   if(load)return h(Spinner,{text:"Conectando con Supabase…"});
   if(err)return h("div",{style:{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:"100vh",gap:"1rem",padding:"2rem",textAlign:"center"}},
@@ -263,7 +266,26 @@ function App({onLogout}){
           h("span",{style:{fontSize:"1.1rem",color:C.ac}},"◈"),
           h("span",{style:{fontWeight:700,fontSize:"1rem",color:C.tx,letterSpacing:"-.01em",fontFamily:"'Inter',system-ui,sans-serif"}},"Perricas")
         ),
-        h("nav",{className:"pnav"},...NAV.map(navBtn)),
+        h("nav",{className:"pnav"},
+          ...NAV.map(navBtn),
+          // Menú Edición con desplegable
+          h("div",{style:{position:"relative"}},
+            h("button",{
+              onClick:()=>setEditOpen(o=>!o),
+              style:{background:["cuentas","categorias"].includes(vista)?C.ab:"none",border:["cuentas","categorias"].includes(vista)?`1px solid ${C.bf}`:"1px solid transparent",borderRadius:".4rem",color:["cuentas","categorias"].includes(vista)?C.ac:C.tm,padding:".35rem .7rem",cursor:"pointer",fontSize:".8rem",fontWeight:500,display:"flex",alignItems:"center",gap:".3rem"}
+            },
+              h("span",{style:{fontSize:".7rem"}},"✎"),
+              h("span",{className:"pnl"},"Edición"),
+              h("span",{style:{fontSize:".6rem",opacity:.6}},editOpen?"▴":"▾")
+            ),
+            editOpen&&h("div",{style:{position:"absolute",top:"calc(100% + 4px)",left:0,background:C.sf,border:`1px solid ${C.bd}`,borderRadius:".5rem",boxShadow:"0 4px 16px rgba(44,42,39,.12)",zIndex:200,minWidth:140,padding:".25rem 0"}},
+              EDIT_MENU.map(n=>h("button",{key:n.id,onClick:()=>{setVista(n.id);setEditOpen(false);},style:{display:"flex",alignItems:"center",gap:".5rem",width:"100%",background:vista===n.id?C.ab:"none",color:vista===n.id?C.ac:C.tm,border:"none",padding:".5rem .9rem",cursor:"pointer",fontSize:".82rem",fontWeight:500}},
+                h("span",{style:{fontSize:".75rem"}},n.ic),
+                h("span",null,n.lb)
+              ))
+            )
+          )
+        ),
         h("div",{className:"pact",style:{flexShrink:0}},
           prof&&h("button",{onClick:()=>setModal("perfil"),style:{display:"flex",alignItems:"center",gap:".4rem",background:prof.color+"18",border:`1px solid ${prof.color}55`,borderRadius:"2rem",padding:".28rem .75rem .28rem .5rem",cursor:"pointer",color:prof.color,fontWeight:600,fontSize:".8rem"}},
             h("span",{style:{fontSize:"1rem",lineHeight:1}},prof.icono),
@@ -278,7 +300,10 @@ function App({onLogout}){
       )
     ),
     // Bottom nav móvil
-    h("div",{className:"pbn"},h("div",{className:"pbni"},...NAV.map(n=>h("button",{key:n.id,className:`pbb${vista===n.id?" active":""}`,onClick:()=>setVista(n.id)},h("span",{className:"ic"},n.ic),h("span",null,n.lb))))),
+    h("div",{className:"pbn"},h("div",{className:"pbni"},
+      ...NAV.map(n=>h("button",{key:n.id,className:`pbb${vista===n.id?" active":""}`,onClick:()=>setVista(n.id)},h("span",{className:"ic"},n.ic),h("span",null,n.lb))),
+      h("button",{key:"edicion",className:`pbb${["cuentas","categorias"].includes(vista)?" active":""}`,onClick:()=>setVista(vista==="cuentas"?"categorias":"cuentas")},h("span",{className:"ic"},"✎"),h("span",null,"Edición"))
+    )),
     // Main
     h("main",{style:{maxWidth:960,margin:"0 auto",padding:"1.5rem 1rem"}},
 
