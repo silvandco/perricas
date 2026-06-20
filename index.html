@@ -155,7 +155,7 @@ function Spinner({text}){
 }
 
 // ── App ───────────────────────────────────────────────────────────────────────
-function App(){
+function App({onLogout}){
   const[profs,setProfs]=useState([]);
   const[ctas,setCtas]=useState([]);
   const[cats,setCats]=useState([]);
@@ -270,7 +270,10 @@ function App(){
             h("span",null,prof.nombre),
             h("span",{style:{fontSize:".6rem",opacity:.7}},"▾")
           ),
-          h(Btn,{small:true,onClick:()=>setModal("movimiento")},"＋ Movimiento")
+          h(Btn,{small:true,onClick:()=>setModal("movimiento")},"＋ Movimiento"),
+          h("button",{onClick:onLogout,title:"Cerrar sesión",style:{background:"none",border:`1px solid #e0ddd8`,borderRadius:".5rem",cursor:"pointer",color:"#a09c97",fontSize:".8rem",padding:".35rem .6rem",fontWeight:500}},
+            "⏻"
+          )
         )
       )
     ),
@@ -524,8 +527,6 @@ function LoginScreen({onAuth}) {
     }
   }
 
-  function onKey(e) { if (e.key === "Enter") handleLogin(); }
-
   return h("div", {style:{minHeight:"100vh",background:"#f4f3f0",display:"flex",alignItems:"center",justifyContent:"center",padding:"1rem"}},
     h("div", {style:{background:"#faf9f7",borderRadius:"1rem",padding:"2rem",width:"100%",maxWidth:360,boxShadow:"0 8px 40px rgba(44,42,39,.12)",border:"1px solid #e0ddd8"}},
       h("div", {style:{textAlign:"center",marginBottom:"1.75rem"}},
@@ -536,7 +537,7 @@ function LoginScreen({onAuth}) {
       h("input", {
         type:"password", value:pwd, placeholder:"Contraseña",
         onChange:e=>{setPwd(e.target.value);setErr(false);},
-        onKeyDown:onKey,
+        onKeyDown:e=>e.key==="Enter"&&handleLogin(),
         autoFocus:true,
         style:{width:"100%",boxSizing:"border-box",background:"#eeecea",border:`1px solid ${err?"#b85c4a":"#e0ddd8"}`,borderRadius:".5rem",color:"#2c2a27",padding:".65rem .75rem",fontSize:"0.95rem",outline:"none",marginBottom:".75rem"}
       }),
@@ -551,8 +552,9 @@ function LoginScreen({onAuth}) {
 
 function Root() {
   const [auth, setAuth] = useState(!!localStorage.getItem(AUTH_KEY));
+  function logout() { localStorage.removeItem(AUTH_KEY); setAuth(false); }
   if (!auth) return h(LoginScreen, {onAuth:()=>setAuth(true)});
-  return h(App, null);
+  return h(App, {onLogout:logout});
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(h(Root,null));
