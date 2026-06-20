@@ -239,7 +239,7 @@ function App({onLogout}){
   async function delProf(id){if(profs.length<=1){alert("Mínimo un perfil.");return;}if(!confirm("¿Eliminar perfil y todos sus datos?"))return;await sb.del("perfiles",id);setProfs(ps=>ps.filter(p=>p.id!==id));setCtas(cs=>cs.filter(c=>c.perfil_id!==id));setCats(cs=>cs.filter(c=>c.perfil_id!==id));setMovs(ms=>ms.filter(m=>m.perfil_id!==id));if(pa===id)setPa(profs.find(p=>p.id!==id)?.id);setModal(null);}
 
   const NAV=[{id:"dashboard",ic:"◈",lb:"Dashboard"},{id:"movimientos",ic:"≡",lb:"Movimientos"},{id:"informe",ic:"✦",lb:"Informe"}];
-  const EDIT_MENU=[{id:"cuentas",ic:"⬡",lb:"Cuentas"},{id:"categorias",ic:"◻",lb:"Categorías"}];
+  const EDIT_MENU=[{id:"cuentas",ic:"⬡",lb:"Cuentas"},{id:"categorias",ic:"◻",lb:"Categorías"},{id:"importar",ic:"⬆",lb:"Importar BBVA"}];
   const [editOpen,setEditOpen]=useState(false);
   useEffect(()=>{if(!editOpen)return;const fn=()=>setEditOpen(false);setTimeout(()=>document.addEventListener("click",fn),0);return()=>document.removeEventListener("click",fn);},[editOpen]);
 
@@ -430,6 +430,7 @@ function App({onLogout}){
         ))
       ),
 
+      vista==="importar"&&h(VistaImportar,{mCtas,mCats,mMovs,perfilActivo:pa,onImport:async(movs)=>{for(const m of movs){await sb.upsert("movimientos",m);}setMovs(ms=>[...ms,...movs]);setVista("movimientos");}}),
       vista==="informe"&&h(VistaInforme,{mMovs,mCats,mCtas,prof})
     ),
 
@@ -438,6 +439,240 @@ function App({onLogout}){
     modal==="editcuenta"&&ctaEditar&&h(CtaModal,{cta:ctaEditar,onSave:f=>editCta(ctaEditar.id,f),onClose:()=>{setModal(null);setCtaEditar(null);}}),
     modal==="categoria"&&h(CatModal,{onSave:addCat,onClose:()=>setModal(null)}),
     modal==="perfil"&&h(ProfModal,{profs,activo:pa,onCambiar:id=>{setPa(id);setModal(null);},onAdd:addProf,onDel:delProf,onClose:()=>setModal(null)})
+  );
+}
+
+// ── Vista Importar BBVA ───────────────────────────────────────────────────────
+function VistaImportar({mCtas, mCats, mMovs, perfilActivo, onImport}) {
+  const [filas, setFilas] = useState(null);
+  const [analizando, setAnalizando] = useState(false);
+  const [importando, setImportando] = useState(false);
+  const [error, setError] = useState(null);
+
+  // Parsear Excel con SheetJS via CDN
+  async function cargarExcel(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    setError(null); setFilas(null);
+    setAnalizando(true);
+    try {
+      // Cargar SheetJS dinámicamente
+      if (!window.XLSX) {
+        await new Promise((res, rej) => {
+          const s = document.createElement("script");
+          s.src = "https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js";
+          s.onload = res; s.onerror = rej;
+          document.head.appendChild(s);
+        });
+      }
+      const buf = await file.arrayBuffer();
+      const wb = window.XLSX.read(buf, {type:"array"});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = window.XLSX.utils.sheet_to_json(ws, {header:1, defval:""});
+
+      // Encontrar la fila de cabecera (buscar "F.Valor" o "Fecha")
+      let headerIdx = rows.findIndex(r => r.some(c => String(c).includes("F.Valor") || String(c).includes("Fecha")));
+      if (headerIdx < 0) headerIdx = 0;
+      const headers = rows[headerIdx].map(c => String(c).trim().toLowerCase());
+
+      const iDate   = headers.findIndex(h => h.includes("fecha") && !h.includes("valor"));
+      const iConc   = headers.findIndex(h => h.includes("concepto"));
+      const iMov    = headers.findIndex(h => h.includes("movimiento"));
+      const iImp    = headers.findIndex(h => h.includes("importe"));
+      const iObs    = headers.findIndex(h => h.includes("observacion"));
+
+      const dataRows = rows.slice(headerIdx + 1).filter(r => r[iImp] !== "" && r[iImp] !== undefined && !isNaN(parseFloat(r[iImp])));
+
+      // Detectar movimientos ya importados (por fecha+importe)
+      const existentes = new Set(mMovs.map(m => m.fecha + "_" + m.importe));
+
+      const parsed = dataRows.map((r, i) => {
+        const rawDate = r[iDate] || "";
+        const concepto = String(r[iConc] || "").trim();
+        const movimiento = String(r[iMov] || "").trim();
+        const obs = String(r[iObs] || "").trim();
+        const importe = parseFloat(r[iImp]);
+
+        // Parsear fecha DD/MM/YYYY
+        let fecha = "";
+        const m = String(rawDate).match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+        if (m) fecha = m[3] + "-" + m[2].padStart(2,"0") + "-" + m[1].padStart(2,"0");
+
+        // Detectar tipo
+        const conceptoLow = concepto.toLowerCase();
+        const obsLow = obs.toLowerCase();
+        let tipo = importe >= 0 ? "ingreso" : "gasto";
+        const esTransferencia =
+          conceptoLow.includes("transferencia") ||
+          conceptoLow.includes("traspaso") ||
+          conceptoLow.includes("aporte") ||
+          obsLow.includes("aporte") ||
+          (conceptoLow.includes("bizum") && (obsLow.includes("recibido") || obsLow.includes("enviado")));
+
+        const textoParaCat = (concepto + " " + movimiento + " " + obs).toLowerCase();
+
+        const yaExiste = existentes.has(fecha + "_" + Math.abs(importe));
+
+        return {
+          _id: "imp_" + i,
+          fecha,
+          concepto: obs || movimiento || concepto,
+          textoParaCat,
+          importe: Math.abs(importe),
+          tipo: esTransferencia ? "transferencia" : tipo,
+          cuentaId: mCtas[0]?.id || "",
+          catId: "",
+          skip: yaExiste,
+          sugerencia: null,
+        };
+      }).filter(r => r.fecha);
+
+      setFilas(parsed);
+
+      // Pedir a Claude sugerencias de categoría en bloque
+      const gastosCat = mCats.filter(c => c.tipo === "gasto").map(c => c.nombre).join(", ");
+      const ingresosCat = mCats.filter(c => c.tipo === "ingreso").map(c => c.nombre).join(", ");
+      const paraClasificar = parsed.filter(r => !r.skip && r.tipo !== "transferencia").map(r => r._id + ": " + r.textoParaCat).join("\n");
+
+      if (paraClasificar) {
+        const resp = await fetch("https://api.anthropic.com/v1/messages", {
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body: JSON.stringify({
+            model:"claude-sonnet-4-6",
+            max_tokens:1000,
+            system: "Eres un clasificador de movimientos bancarios. Para cada movimiento devuelve SOLO el nombre exacto de la categoria mas adecuada de la lista, o 'Sin categoria' si no encaja. Responde en formato JSON: {\"id\":\"categoria\"}. Sin explicaciones.",
+            messages:[{role:"user", content:"Categorias de gasto: " + gastosCat + "\nCategorias de ingreso: " + ingresosCat + "\n\nClasifica estos movimientos:\n" + paraClasificar}]
+          })
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+          try {
+            const text = data.content[0].text.replace(/```json|```/g,"").trim();
+            const sugs = JSON.parse(text);
+            setFilas(prev => prev.map(r => {
+              const sug = sugs[r._id];
+              const cat = mCats.find(c => c.nombre === sug);
+              return {...r, catId: cat?.id || "", sugerencia: cat?.nombre || null};
+            }));
+          } catch(_) {}
+        }
+      }
+    } catch(e) {
+      setError("Error leyendo el archivo: " + e.message);
+    } finally {
+      setAnalizando(false);
+    }
+  }
+
+  function updateFila(id, key, val) {
+    setFilas(prev => prev.map(r => r._id === id ? {...r, [key]: val} : r));
+  }
+
+  async function confirmarImport() {
+    const toImport = filas.filter(r => !r.skip);
+    if (!toImport.length) { alert("No hay movimientos para importar."); return; }
+    setImportando(true);
+    try {
+      const movs = toImport.map(r => ({
+        id: "bbva_" + r._id + "_" + Date.now(),
+        perfil_id: perfilActivo,
+        tipo: r.tipo,
+        fecha: r.fecha,
+        importe: parseFloat(r.importe),
+        concepto: r.concepto || null,
+        cuenta_id: r.cuentaId,
+        categoria_id: r.catId || null,
+        cuenta_dest_id: null,
+      }));
+      await onImport(movs);
+    } catch(e) {
+      alert("Error importando: " + e.message);
+      setImportando(false);
+    }
+  }
+
+  const pendientes = filas ? filas.filter(r => !r.skip).length : 0;
+
+  return h("div", null,
+    h("div", {style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"1rem"}},
+      h("h2", {style:{margin:0,fontSize:"1rem",fontWeight:600}}, "⬆ Importar movimientos BBVA"),
+      filas && pendientes > 0 && h(Btn, {onClick:confirmarImport, disabled:importando},
+        importando ? "Importando..." : "Importar " + pendientes + " movimientos"
+      )
+    ),
+
+    !filas && h(Card, {style:{textAlign:"center",padding:"2.5rem 1rem"}},
+      h("div", {style:{fontSize:"2rem",marginBottom:"1rem"}}, "📄"),
+      h("p", {style:{color:C.tm,fontSize:".9rem",margin:"0 0 1.25rem"}}, "Sube el Excel de movimientos que descargaste del BBVA"),
+      h("label", {style:{display:"inline-block",background:C.ac,color:"#fff",borderRadius:".5rem",padding:".6rem 1.25rem",cursor:"pointer",fontWeight:600,fontSize:".875rem"}},
+        "Seleccionar archivo",
+        h("input", {type:"file", accept:".xlsx,.xls", onChange:cargarExcel, style:{display:"none"}})
+      ),
+      analizando && h("p", {style:{color:C.tm,fontSize:".82rem",marginTop:"1rem"}}, "Analizando y clasificando con IA...")
+    ),
+
+    error && h(Card, {style:{background:C.rb,border:"1px solid "+C.rd+"44",marginBottom:"1rem"}},
+      h("p", {style:{margin:0,color:C.rd,fontSize:".875rem"}}, error)
+    ),
+
+    analizando && h("div", {style:{display:"flex",alignItems:"center",gap:"1rem",padding:"2rem",color:C.tm}},
+      h("div", {style:{width:28,height:28,border:"3px solid "+C.bd,borderTopColor:C.ac,borderRadius:"50%",animation:"spin .8s linear infinite",flexShrink:0}}),
+      h("p", {style:{margin:0,fontSize:".875rem"}}, "Clasificando movimientos con IA...")
+    ),
+
+    filas && !analizando && h("div", null,
+      h(Card, {style:{marginBottom:"1rem",padding:".75rem 1rem"}},
+        h("div", {style:{display:"flex",gap:"1rem",flexWrap:"wrap"}},
+          h("span", {style:{color:C.gn,fontWeight:600,fontSize:".82rem"}}, "✓ " + pendientes + " a importar"),
+          h("span", {style:{color:C.ts,fontSize:".82rem"}}, filas.filter(r=>r.skip).length + " ya existentes (omitidos)"),
+          h("button", {onClick:()=>setFilas(null), style:{background:"none",border:"none",color:C.tm,cursor:"pointer",fontSize:".8rem",marginLeft:"auto"}}, "← Cargar otro archivo")
+        )
+      ),
+
+      // Tabla de movimientos
+      h("div", {style:{display:"flex",flexDirection:"column",gap:".4rem"}},
+        filas.map(r => h(Card, {key:r._id, style:{padding:".65rem .9rem",opacity:r.skip?.8:1,background:r.skip?C.sa:C.sf}},
+          h("div", {style:{display:"flex",alignItems:"center",gap:".6rem",flexWrap:"wrap"}},
+            // Checkbox incluir/excluir
+            h("input", {type:"checkbox", checked:!r.skip, onChange:e=>updateFila(r._id,"skip",!e.target.checked), style:{flexShrink:0,width:16,height:16,cursor:"pointer"}}),
+            // Fecha
+            h("span", {style:{color:C.ts,fontSize:".72rem",flexShrink:0,minWidth:70}}, r.fecha),
+            // Concepto
+            h("div", {style:{flex:1,minWidth:120}},
+              h("input", {value:r.concepto, onChange:e=>updateFila(r._id,"concepto",e.target.value), disabled:r.skip,
+                style:{...IS,padding:".3rem .5rem",fontSize:".8rem",background:r.skip?"transparent":C.sa,border:r.skip?"none":"1px solid "+C.bd}})
+            ),
+            // Tipo
+            h("select", {value:r.tipo, onChange:e=>updateFila(r._id,"tipo",e.target.value), disabled:r.skip,
+              style:{...IS,width:"auto",padding:".3rem .5rem",fontSize:".78rem",color:r.tipo==="ingreso"?C.gn:r.tipo==="transferencia"?C.bl:C.rd}},
+              h("option",{value:"gasto"},"↓ Gasto"),
+              h("option",{value:"ingreso"},"↑ Ingreso"),
+              h("option",{value:"transferencia"},"↔ Transf.")
+            ),
+            // Categoría (solo si no es transferencia)
+            r.tipo !== "transferencia" && h("select", {value:r.catId, onChange:e=>updateFila(r._id,"catId",e.target.value), disabled:r.skip,
+              style:{...IS,width:"auto",padding:".3rem .5rem",fontSize:".78rem"}},
+              h("option",{value:""},"Sin cat."),
+              ...mCats.filter(c=>c.tipo===r.tipo).map(c=>h("option",{key:c.id,value:c.id},c.icono+" "+c.nombre))
+            ),
+            // Cuenta
+            h("select", {value:r.cuentaId, onChange:e=>updateFila(r._id,"cuentaId",e.target.value), disabled:r.skip,
+              style:{...IS,width:"auto",padding:".3rem .5rem",fontSize:".78rem"}},
+              ...mCtas.map(c=>h("option",{key:c.id,value:c.id},c.nombre))
+            ),
+            // Importe
+            h("span", {style:{fontWeight:700,fontSize:".9rem",fontFamily:"'Inter',system-ui,sans-serif",color:r.tipo==="ingreso"?C.gn:r.tipo==="transferencia"?C.bl:C.rd,flexShrink:0,minWidth:70,textAlign:"right"}},
+              (r.tipo==="ingreso"?"+":r.tipo==="transferencia"?"":"-") + r.importe.toFixed(2) + "€"
+            )
+          ),
+          // Badge sugerencia IA
+          r.sugerencia && !r.skip && h("div", {style:{marginTop:".3rem",paddingLeft:"1.6rem"}},
+            h("span", {style:{fontSize:".7rem",color:C.ac,background:C.ab,borderRadius:"99px",padding:".15rem .5rem"}}, "✦ IA: " + r.sugerencia)
+          )
+        ))
+      )
+    )
   );
 }
 
