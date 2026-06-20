@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>Perricas</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Playfair+Display:wght@600&display=swap" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { color-scheme: light; background: #f4f3f0; margin: 0; padding: 0; overflow-x: hidden; max-width: 100vw; }
+    input, select, textarea, button { font-family: 'Plus Jakarta Sans', system-ui, sans-serif; color-scheme: light; }
+    input[type="date"]::-webkit-calendar-picker-indicator,
+    input[type="month"]::-webkit-calendar-picker-indicator { filter: opacity(0.5); }
+    select option { background: #faf9f7; color: #2c2a27; }
+    .perricas-header-inner { display:flex; align-items:center; justify-content:space-between; height:52px; padding:0 1rem; max-width:960px; margin:0 auto; }
+    .perricas-nav { display:flex; gap:0.15rem; }
+    .perricas-actions { display:flex; gap:0.4rem; align-items:center; }
+    .perricas-nav-label { display:inline; }
+    .grid-3 { display:grid; grid-template-columns:repeat(3,1fr); gap:0.75rem; margin-bottom:0.75rem; }
+    .grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:0.75rem; margin-bottom:0.75rem; }
+    .grid-fil { display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:0.75rem; }
+    .grid-filtros { display:grid; grid-template-columns:1fr 1fr 1fr; gap:0.65rem; }
+    .perricas-bottom-nav { display:none; position:fixed; bottom:0; left:0; right:0; background:#faf9f7; border-top:1px solid #e0ddd8; z-index:200; padding:0.4rem 0 calc(0.4rem + env(safe-area-inset-bottom)); }
+    .perricas-bottom-nav-inner { display:flex; justify-content:space-around; }
+    .perricas-bottom-btn { display:flex; flex-direction:column; align-items:center; gap:2px; background:none; border:none; cursor:pointer; padding:0.3rem 0.5rem; border-radius:0.5rem; font-size:0.65rem; font-weight:600; color:#a09c97; font-family:'Plus Jakarta Sans',system-ui,sans-serif; min-width:56px; }
+    .perricas-bottom-btn.active { color:#7c6f5e; }
+    .perricas-bottom-btn span.icon { font-size:1.2rem; line-height:1; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media (max-width:600px) {
+      .perricas-nav { display:none; }
+      .perricas-bottom-nav { display:block; }
+      .grid-3 { grid-template-columns:1fr; }
+      .grid-2 { grid-template-columns:1fr; }
+      .grid-filtros { grid-template-columns:1fr 1fr; }
+      main { padding-bottom:80px !important; }
+      .perricas-modal-box { max-width:100% !important; margin:0.5rem !important; border-radius:0.75rem !important; }
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo, useRef, useCallback } = React;
+
+const SB_URL = "https://tknbxtdwrvkzwqrtasim.supabase.co";
+const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRrbmJ4dGR3cnZrendxcnRhc2ltIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE5MTc3MzcsImV4cCI6MjA5NzQ5MzczN30.8m2Ov1_XnL5-eui1qZiIU78QsTZEa5oDZzvqDhrjtV8";
+
+const sb = {
+  async get(table, filters={}) {
+    let url = `${SB_URL}/rest/v1/${table}?select=*`;
+    for (const [k,v] of Object.entries(filters)) url += `&${k}=eq.${encodeURIComponent(v)}`;
+    const r = await fetch(url, {headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});
+    if (!r.ok) throw new Error(await r.text());
+    return r.json();
+  },
+  async upsert(table, rows) {
+    const r = await fetch(`${SB_URL}/rest/v1/${table}`, {
+      method:"POST",
+      headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json",Prefer:"resolution=merge-duplicates"},
+      body:JSON.stringify(Array.isArray(rows)?rows:[rows]),
+    });
+    if (!r.ok) throw new Error(await r.text());
+  },
+  async del(table, id) {
+    const r = await fetch(`${SB_URL}/rest/v1/${table}?id=eq.${id}`, {
+      method:"DELETE",
+      headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`},
+    });
+    if (!r.ok) throw new Error(await r.text());
+  },
+};
+
+const C = {
+  bg:"#f4f3f0",surface:"#faf9f7",surfaceAlt:"#eeecea",
+  border:"#e0ddd8",borderFoc:"#b0a99f",
+  text:"#2c2a27",textMid:"#6b6760",textSoft:"#a09c97",
+  green:"#3a8c6e",greenBg:"#e8f4ef",
+  red:"#b85c4a",redBg:"#f5eae7",
+  blue:"#4a7ab5",blueBg:"#eaf0f8",
+  accent:"#7c6f5e",accentBg:"#f0ece6",
+};
+const PALETTE = ["#7c6f5e","#4a7ab5","#3a8c6e","#b85c4a","#8a6eb0","#b08a3a","#4a8a8a","#8a7a4a"];
+const fmt = n => new Intl.NumberFormat("es-ES",{style:"currency",currency:"EUR"}).format(n??0);
+const fmtDate = d => new Date(d+"T00:00:00").toLocaleDateString("es-ES",{day:"2-digit",month:"2-digit",year:"numeric"});
+const today = () => new Date().toISOString().split("T")[0];
+const uid = () => Math.random().toString(36).slice(2,10);
+
+const TIPOS_CUENTA = [
+  {value:"efectivo",label:"Efectivo"},{value:"corriente",label:"Cuenta corriente"},
+  {value:"ahorro",label:"Cuenta de ahorro"},{value:"deposito",label:"Depósito"},
+  {value:"inversion",label:"Fondo de inversión"},{value:"credito",label:"Tarjeta de crédito"},{value:"otro",label:"Otro"},
+];
+
+const CATS_DEFAULT = [
+  {id:"c1",nombre:"Supermercado",tipo:"gasto",icono:"🛒"},{id:"c2",nombre:"Restaurantes",tipo:"gasto",icono:"🍽️"},
+  {id:"c3",nombre:"Cafés y bares",tipo:"gasto",icono:"☕"},{id:"c4",nombre:"Transporte público",tipo:"gasto",icono:"🚌"},
+  {id:"c5",nombre:"Combustible",tipo:"gasto",icono:"⛽"},{id:"c6",nombre:"Parking y peajes",tipo:"gasto",icono:"🅿️"},
+  {id:"c7",nombre:"Alquiler / Hipoteca",tipo:"gasto",icono:"🏠"},{id:"c8",nombre:"Comunidad y gastos",tipo:"gasto",icono:"🏢"},
+  {id:"c9",nombre:"Suministros",tipo:"gasto",icono:"💡"},{id:"c10",nombre:"Internet y móvil",tipo:"gasto",icono:"📱"},
+  {id:"c11",nombre:"Seguros",tipo:"gasto",icono:"🛡️"},{id:"c12",nombre:"Médico y farmacia",tipo:"gasto",icono:"💊"},
+  {id:"c13",nombre:"Deporte y gym",tipo:"gasto",icono:"🏋️"},{id:"c14",nombre:"Ropa y calzado",tipo:"gasto",icono:"👕"},
+  {id:"c15",nombre:"Cine y espectáculos",tipo:"gasto",icono:"🎬"},{id:"c16",nombre:"Ocio y hobbies",tipo:"gasto",icono:"🎮"},
+  {id:"c17",nombre:"Viajes y vacaciones",tipo:"gasto",icono:"✈️"},{id:"c18",nombre:"Educación",tipo:"gasto",icono:"📚"},
+  {id:"c19",nombre:"Libros y prensa",tipo:"gasto",icono:"📰"},{id:"c20",nombre:"Suscripciones",tipo:"gasto",icono:"📺"},
+  {id:"c21",nombre:"Mascotas",tipo:"gasto",icono:"🐾"},{id:"c22",nombre:"Regalos",tipo:"gasto",icono:"🎁"},
+  {id:"c23",nombre:"Hogar y menaje",tipo:"gasto",icono:"🪴"},{id:"c24",nombre:"Peluquería",tipo:"gasto",icono:"✂️"},
+  {id:"c25",nombre:"Impuestos y tasas",tipo:"gasto",icono:"🧾"},{id:"c26",nombre:"Otros gastos",tipo:"gasto",icono:"📦"},
+  {id:"c30",nombre:"Nómina",tipo:"ingreso",icono:"💼"},{id:"c31",nombre:"Paga extra",tipo:"ingreso",icono:"💰"},
+  {id:"c32",nombre:"Autónomo / Factura",tipo:"ingreso",icono:"🧾"},{id:"c33",nombre:"Intereses bancarios",tipo:"ingreso",icono:"🏦"},
+  {id:"c34",nombre:"Dividendos",tipo:"ingreso",icono:"📈"},{id:"c35",nombre:"Alquiler cobrado",tipo:"ingreso",icono:"🏠"},
+  {id:"c36",nombre:"Venta de bienes",tipo:"ingreso",icono:"🛍️"},{id:"c37",nombre:"Prestación pública",tipo:"ingreso",icono:"🏛️"},
+  {id:"c38",nombre:"Pensión",tipo:"ingreso",icono:"👴"},{id:"c39",nombre:"Otros ingresos",tipo:"ingreso",icono:"➕"},
+];
+
+// ── UI ────────────────────────────────────────────────────────────────────────
+function Modal({title,onClose,children}){
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(44,42,39,0.45)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:"1rem"}}>
+      <div className="perricas-modal-box" style={{background:C.surface,borderRadius:"1rem",width:"100%",maxWidth:480,boxShadow:"0 8px 40px rgba(44,42,39,0.18)",overflow:"hidden",border:`1px solid ${C.border}`}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"1.1rem 1.5rem",borderBottom:`1px solid ${C.border}`}}>
+          <h3 style={{margin:0,color:C.text,fontSize:"0.95rem",fontWeight:600}}>{title}</h3>
+          <button onClick={onClose} style={{background:"none",border:"none",color:C.textSoft,cursor:"pointer",fontSize:"1.1rem",lineHeight:1,padding:"0.2rem"}}>✕</button>
+        </div>
+        <div style={{padding:"1.25rem 1.5rem",maxHeight:"80vh",overflowY:"auto"}}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+const inputStyle = {width:"100%",boxSizing:"border-box",background:C.surfaceAlt,border:`1px solid ${C.border}`,borderRadius:"0.5rem",color:C.text,padding:"0.55rem 0.75rem",fontSize:"0.875rem",outline:"none"};
+
+function Field({label,children}){return(<div style={{marginBottom:"0.875rem"}}>{label&&<label style={{display:"block",color:C.textMid,fontSize:"0.775rem",marginBottom:"0.35rem",fontWeight:500}}>{label}</label>}{children}</div>);}
+function Input({label,...props}){return(<Field label={label}><input {...props} style={{...inputStyle,...props.style}}/></Field>);}
+function Select({label,children,...props}){return(<Field label={label}><select {...props} style={{...inputStyle,...props.style}}>{children}</select></Field>);}
+function Btn({children,variant="primary",small,...props}){
+  const base={border:"none",borderRadius:"0.5rem",cursor:"pointer",fontWeight:600,fontSize:small?"0.775rem":"0.875rem",padding:small?"0.35rem 0.7rem":"0.6rem 1.1rem"};
+  const vs={primary:{background:C.accent,color:"#fff"},success:{background:C.green,color:"#fff"},danger:{background:C.red,color:"#fff"},blue:{background:C.blue,color:"#fff"},ghost:{background:C.surfaceAlt,color:C.textMid,border:`1px solid ${C.border}`}};
+  return <button style={{...base,...vs[variant]}} {...props}>{children}</button>;
+}
+function Card({children,style}){return(<div style={{background:C.surface,borderRadius:"0.875rem",padding:"1.1rem 1.25rem",border:`1px solid ${C.border}`,...style}}>{children}</div>);}
+function Badge({color,bg,children}){return(<span style={{display:"inline-flex",alignItems:"center",gap:"0.25rem",background:bg||color+"18",color,borderRadius:"99px",padding:"0.2rem 0.6rem",fontSize:"0.72rem",fontWeight:600}}>{children}</span>);}
+
+function DonutChart({slices,size=100}){
+  const total=slices.reduce((s,x)=>s+x.value,0)||1;
+  let offset=0;const r=40,circ=2*Math.PI*r;
+  return(<svg width={size} height={size} viewBox="0 0 100 100">
+    {slices.map((s,i)=>{const pct=s.value/total,dash=pct*circ;const el=<circle key={i} cx="50" cy="50" r={r} fill="none" stroke={s.color} strokeWidth="16" strokeDasharray={`${dash} ${circ-dash}`} strokeDashoffset={-offset*circ} style={{transform:"rotate(-90deg)",transformOrigin:"50% 50%"}}/>;offset+=pct;return el;})}
+    <circle cx="50" cy="50" r="31" fill={C.surface}/>
+  </svg>);
+}
+
+function AutocompleteInput({label,value,onChange,sugerencias}){
+  const [open,setOpen]=useState(false);const [activo,setActivo]=useState(-1);const ref=useRef(null);
+  const filtradas=useMemo(()=>{if(!value.trim())return[];const q=value.toLowerCase();return[...new Set(sugerencias.filter(s=>s.toLowerCase().includes(q)&&s.toLowerCase()!==q))].slice(0,7);},[value,sugerencias]);
+  useEffect(()=>{setOpen(filtradas.length>0);setActivo(-1);},[filtradas.length]);
+  useEffect(()=>{const h=e=>{if(ref.current&&!ref.current.contains(e.target))setOpen(false);};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h);},[]);
+  function handleKey(e){if(!open)return;if(e.key==="ArrowDown"){e.preventDefault();setActivo(a=>Math.min(a+1,filtradas.length-1));}else if(e.key==="ArrowUp"){e.preventDefault();setActivo(a=>Math.max(a-1,-1));}else if(e.key==="Enter"&&activo>=0){e.preventDefault();onChange(filtradas[activo]);setOpen(false);}else if(e.key==="Escape")setOpen(false);}
+  return(<div ref={ref} style={{marginBottom:"0.875rem",position:"relative"}}>
+    {label&&<label style={{display:"block",color:C.textMid,fontSize:"0.775rem",marginBottom:"0.35rem",fontWeight:500}}>{label}</label>}
+    <input value={value} onChange={e=>onChange(e.target.value)} onKeyDown={handleKey} onFocus={()=>filtradas.length>0&&setOpen(true)} placeholder="Descripción del movimiento" autoComplete="off" style={inputStyle}/>
+    {open&&<ul style={{position:"absolute",top:"calc(100% + 3px)",left:0,right:0,zIndex:2000,background:C.surface,border:`1px solid ${C.border}`,borderRadius:"0.5rem",margin:0,padding:"0.25rem 0",listStyle:"none",boxShadow:"0 6px 20px rgba(44,42,39,0.12)",maxHeight:210,overflowY:"auto"}}>
+      {filtradas.map((s,i)=><li key={s} onMouseDown={()=>{onChange(s);setOpen(false);}} style={{padding:"0.45rem 0.75rem",cursor:"pointer",fontSize:"0.85rem",background:i===activo?C.surfaceAlt:"transparent",color:i===activo?C.text:C.textMid,display:"flex",alignItems:"center",gap:"0.4rem"}}><span style={{color:C.textSoft,fontSize:"0.75rem"}}>↩</span>{s}</li>)}
+    </ul>}
+  </div>);
+}
+
+function Spinner({text="Cargando..."}){
+  return(<div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:"100vh",gap:"1rem",color:C.textMid,fontFamily:"'Plus Jakarta Sans',system-ui,sans-serif"}}>
+    <div style={{width:36,height:36,border:`3px solid ${C.border}`,borderTopColor:C.accent,borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
+    <p style={{margin:0,fontSize:"0.875rem"}}>{text}</p>
+  </div>);
+}
+
+// ── APP ────────────────────────────────────────────────────────────────────────
+function App(){
+  const [perfiles,setPerfiles]=useState([]);
+  const [cuentas,setCuentas]=useState([]);
+  const [categorias,setCategorias]=useState([]);
+  const [movimientos,setMovimientos]=useState([]);
+  const [perfilActivo,setPerfilActivo]=useState(null);
+  const [cargando,setCargando]=useState(true);
+  const [error,setError]=useState(null);
+  const [vista,setVista]=useState("dashboard");
+  const [modal,setModal]=useState(null);
+  const [filtro,setFiltro]=useState({mes:today().slice(0,7),cuenta:"",categoria:""});
+
+  const cargarTodo=useCallback(async()=>{
+    try{
+      setCargando(true);setError(null);
+      let profs=await sb.get("perfiles");
+      if(profs.length===0){
+        const p1={id:"p1",nombre:"Personal",icono:"👤",color:PALETTE[0]};
+        const p2={id:"p2",nombre:"Común",icono:"👫",color:PALETTE[1]};
+        await sb.upsert("perfiles",[p1,p2]);
+        for(const p of [p1,p2]){
+          await sb.upsert("cuentas",[
+            {id:uid(),perfil_id:p.id,nombre:"Efectivo",tipo:"efectivo",color:PALETTE[2],saldo_inicial:0},
+            {id:uid(),perfil_id:p.id,nombre:"Cuenta Corriente",tipo:"corriente",color:PALETTE[1],saldo_inicial:0},
+          ]);
+          await sb.upsert("categorias",CATS_DEFAULT.map(c=>({...c,id:`${p.id}_${c.id}`,perfil_id:p.id})));
+        }
+        profs=[p1,p2];
+      }
+      setPerfiles(profs);
+      setPerfilActivo(pa=>pa||profs[0]?.id);
+      const [cts,cats,movs]=await Promise.all([sb.get("cuentas"),sb.get("categorias"),sb.get("movimientos")]);
+      setCuentas(cts);setCategorias(cats);setMovimientos(movs);
+    }catch(e){setError(e.message);}
+    finally{setCargando(false);}
+  },[]);
+
+  useEffect(()=>{cargarTodo();},[]);
+
+  const perfil=perfiles.find(p=>p.id===perfilActivo)||perfiles[0];
+  const misCuentas=cuentas.filter(c=>c.perfil_id===perfilActivo);
+  const misCats=categorias.filter(c=>c.perfil_id===perfilActivo);
+  const misMov=movimientos.filter(m=>m.perfil_id===perfilActivo);
+
+  const saldosCuenta=useMemo(()=>{
+    const map={};
+    misCuentas.forEach(c=>map[c.id]=c.saldo_inicial||0);
+    misMov.forEach(m=>{
+      if(m.tipo==="ingreso")map[m.cuenta_id]=(map[m.cuenta_id]||0)+m.importe;
+      else if(m.tipo==="gasto")map[m.cuenta_id]=(map[m.cuenta_id]||0)-m.importe;
+      else if(m.tipo==="transferencia"){map[m.cuenta_id]=(map[m.cuenta_id]||0)-m.importe;map[m.cuenta_dest_id]=(map[m.cuenta_dest_id]||0)+m.importe;}
+    });
+    return map;
+  },[misCuentas,misMov]);
+
+  const saldoTotal=Object.values(saldosCuenta).reduce((a,b)=>a+b,0);
+
+  const movsFiltrados=useMemo(()=>
+    misMov.filter(m=>{
+      const enMes=!filtro.mes||m.fecha.startsWith(filtro.mes);
+      const enCuenta=!filtro.cuenta||m.cuenta_id===filtro.cuenta;
+      const enCat=!filtro.categoria||m.categoria_id===filtro.categoria;
+      return enMes&&enCuenta&&enCat;
+    }).sort((a,b)=>b.fecha.localeCompare(a.fecha))
+  ,[misMov,filtro]);
+
+  const ingresosMes=movsFiltrados.filter(m=>m.tipo==="ingreso").reduce((s,m)=>s+m.importe,0);
+  const gastosMes=movsFiltrados.filter(m=>m.tipo==="gasto").reduce((s,m)=>s+m.importe,0);
+
+  const gastosPorCat=useMemo(()=>{
+    const map={};
+    movsFiltrados.filter(m=>m.tipo==="gasto").forEach(m=>{map[m.categoria_id]=(map[m.categoria_id]||0)+m.importe;});
+    return Object.entries(map).map(([id,v])=>{
+      const cat=misCats.find(c=>c.id===id);
+      return{id,nombre:cat?.nombre||"?",icono:cat?.icono||"",value:v,color:PALETTE[Object.keys(map).indexOf(id)%PALETTE.length]};
+    }).sort((a,b)=>b.value-a.value);
+  },[movsFiltrados,misCats]);
+
+  const evolucion=useMemo(()=>{
+    const meses=[];
+    for(let i=5;i>=0;i--){
+      const d=new Date();d.setDate(1);d.setMonth(d.getMonth()-i);
+      const key=d.toISOString().slice(0,7);
+      const label=d.toLocaleDateString("es-ES",{month:"short"});
+      const mov=misMov.filter(m=>m.fecha.startsWith(key));
+      meses.push({label,ingresos:mov.filter(m=>m.tipo==="ingreso").reduce((s,m)=>s+m.importe,0),gastos:mov.filter(m=>m.tipo==="gasto").reduce((s,m)=>s+m.importe,0)});
+    }
+    return meses;
+  },[misMov]);
+
+  async function addMovimiento(form){
+    const mov={id:uid(),perfil_id:perfilActivo,tipo:form.tipo,fecha:form.fecha,importe:parseFloat(form.importe),concepto:form.concepto||null,cuenta_id:form.cuentaId,categoria_id:form.categoriaId||null,cuenta_dest_id:form.cuentaDestId||null};
+    await sb.upsert("movimientos",mov);setMovimientos(ms=>[...ms,mov]);setModal(null);
+  }
+  async function delMovimiento(id){
+    if(!confirm("¿Eliminar movimiento?"))return;
+    await sb.del("movimientos",id);setMovimientos(ms=>ms.filter(m=>m.id!==id));
+  }
+  async function addCuenta(form){
+    const c={id:uid(),perfil_id:perfilActivo,nombre:form.nombre,tipo:form.tipo,color:form.color,saldo_inicial:parseFloat(form.saldoInicial||0)};
+    await sb.upsert("cuentas",c);setCuentas(cs=>[...cs,c]);setModal(null);
+  }
+  async function delCuenta(id){
+    if(misMov.some(m=>m.cuenta_id===id||m.cuenta_dest_id===id)){alert("Tiene movimientos asociados.");return;}
+    if(!confirm("¿Eliminar cuenta?"))return;
+    await sb.del("cuentas",id);setCuentas(cs=>cs.filter(c=>c.id!==id));
+  }
+  async function addCategoria(form){
+    const c={id:uid(),perfil_id:perfilActivo,nombre:form.nombre,tipo:form.tipo,icono:form.icono};
+    await sb.upsert("categorias",c);setCategorias(cs=>[...cs,c]);setModal(null);
+  }
+  async function delCategoria(id){
+    if(!confirm("¿Eliminar categoría?"))return;
+    await sb.del("categorias",id);setCategorias(cs=>cs.filter(c=>c.id!==id));
+  }
+  async function addPerfil(form){
+    const p={id:uid(),nombre:form.nombre,icono:form.icono,color:form.color};
+    await sb.upsert("perfiles",p);
+    await sb.upsert("cuentas",[
+      {id:uid(),perfil_id:p.id,nombre:"Efectivo",tipo:"efectivo",color:PALETTE[2],saldo_inicial:0},
+      {id:uid(),perfil_id:p.id,nombre:"Cuenta Corriente",tipo:"corriente",color:PALETTE[1],saldo_inicial:0},
+    ]);
+    await sb.upsert("categorias",CATS_DEFAULT.map(c=>({...c,id:`${p.id}_${c.id}`,perfil_id:p.id})));
+    await cargarTodo();setPerfilActivo(p.id);setModal(null);
+  }
+  async function delPerfil(id){
+    if(perfiles.length<=1){alert("Debe haber al menos un perfil.");return;}
+    if(!confirm("¿Eliminar este perfil y todos sus datos?"))return;
+    await sb.del("perfiles",id);
+    setPerfiles(ps=>ps.filter(p=>p.id!==id));
+    setCuentas(cs=>cs.filter(c=>c.perfil_id!==id));
+    setCategorias(cs=>cs.filter(c=>c.perfil_id!==id));
+    setMovimientos(ms=>ms.filter(m=>m.perfil_id!==id));
+    if(perfilActivo===id)setPerfilActivo(perfiles.find(p=>p.id!==id)?.id);
+    setModal(null);
+  }
+
+  const NAV=[{id:"dashboard",icon:"◈",label:"Dashboard"},{id:"movimientos",icon:"≡",label:"Movimientos"},{id:"cuentas",icon:"⬡",label:"Cuentas"},{id:"categorias",icon:"◻",label:"Categorías"}];
+
+  if(cargando)return <Spinner text="Conectando con Supabase…"/>;
+  if(error)return(
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:"100vh",gap:"1rem",padding:"2rem",textAlign:"center",fontFamily:"'Plus Jakarta Sans',system-ui,sans-serif"}}>
+      <span style={{fontSize:"2rem"}}>⚠️</span>
+      <p style={{color:C.red,fontWeight:600,margin:0}}>Error de conexión</p>
+      <p style={{color:C.textMid,fontSize:"0.85rem",margin:0,maxWidth:340}}>{error}</p>
+      <Btn onClick={cargarTodo}>Reintentar</Btn>
+    </div>
+  );
+
+  return(
+    <div style={{minHeight:"100vh",background:C.bg,color:C.text,fontFamily:"'Plus Jakarta Sans',system-ui,sans-serif"}}>
+      <header style={{background:C.surface,borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,zIndex:100}}>
+        <div className="perricas-header-inner">
+          <div style={{display:"flex",alignItems:"center",gap:"0.5rem",flexShrink:0}}>
+            <span style={{fontSize:"1.1rem",color:C.accent}}>◈</span>
+            <span style={{fontWeight:700,fontSize:"1rem",color:C.text,letterSpacing:"-0.01em",fontFamily:"'Playfair Display',serif"}}>Perricas</span>
+          </div>
+          <nav className="perricas-nav">
+            {NAV.map(n=><button key={n.id} onClick={()=>setVista(n.id)} style={{background:vista===n.id?C.accentBg:"none",border:vista===n.id?`1px solid ${C.borderFoc}`:"1px solid transparent",borderRadius:"0.4rem",color:vista===n.id?C.accent:C.textMid,padding:"0.35rem 0.7rem",cursor:"pointer",fontSize:"0.8rem",fontWeight:500,display:"flex",alignItems:"center",gap:"0.3rem"}}>
+              <span style={{fontSize:"0.7rem"}}>{n.icon}</span><span className="perricas-nav-label">{n.label}</span>
+            </button>)}
+          </nav>
+          <div className="perricas-actions" style={{flexShrink:0,display:"flex",gap:"0.5rem",alignItems:"center"}}>
+            {perfil&&<button onClick={()=>setModal("perfil")} style={{display:"flex",alignItems:"center",gap:"0.4rem",background:perfil.color+"18",border:`1px solid ${perfil.color}55`,borderRadius:"2rem",padding:"0.28rem 0.75rem 0.28rem 0.5rem",cursor:"pointer",color:perfil.color,fontWeight:600,fontSize:"0.8rem",fontFamily:"'Plus Jakarta Sans',system-ui,sans-serif"}}>
+              <span style={{fontSize:"1rem",lineHeight:1}}>{perfil.icono}</span>
+              <span>{perfil.nombre}</span>
+              <span style={{fontSize:"0.6rem",opacity:0.7}}>▾</span>
+            </button>}
+            <Btn small onClick={()=>setModal("movimiento")}>＋ Movimiento</Btn>
+          </div>
+        </div>
+      </header>
+
+      <div className="perricas-bottom-nav">
+        <div className="perricas-bottom-nav-inner">
+          {NAV.map(n=><button key={n.id} className={`perricas-bottom-btn${vista===n.id?" active":""}`} onClick={()=>setVista(n.id)}>
+            <span className="icon">{n.icon}</span><span>{n.label}</span>
+          </button>)}
+        </div>
+      </div>
+
+      <main style={{maxWidth:960,margin:"0 auto",padding:"1.5rem 1rem"}}>
+
+        {vista==="dashboard"&&<div>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"1.1rem"}}>
+            <h2 style={{margin:0,fontSize:"1rem",fontWeight:600}}>{perfil?.icono} {perfil?.nombre}</h2>
+            <input type="month" value={filtro.mes} onChange={e=>setFiltro(f=>({...f,mes:e.target.value}))} style={{...inputStyle,width:"auto",fontSize:"0.8rem",padding:"0.35rem 0.65rem"}}/>
+          </div>
+          <div className="grid-3">
+            {[{label:"Saldo total",value:saldoTotal,color:C.accent,bg:C.accentBg,icon:"◈"},{label:"Ingresos del mes",value:ingresosMes,color:C.green,bg:C.greenBg,icon:"↑"},{label:"Gastos del mes",value:gastosMes,color:C.red,bg:C.redBg,icon:"↓"}].map(k=>
+              <Card key={k.label} style={{background:k.bg,border:`1px solid ${k.color}22`}}>
+                <p style={{margin:"0 0 0.35rem",color:k.color,fontSize:"0.72rem",fontWeight:600,display:"flex",alignItems:"center",gap:"0.3rem"}}><span>{k.icon}</span>{k.label}</p>
+                <p style={{margin:0,fontSize:"1.3rem",fontWeight:700,color:k.color,letterSpacing:"-0.02em",fontFamily:"'Playfair Display',serif"}}>{fmt(k.value)}</p>
+              </Card>
+            )}
+          </div>
+          <div className="grid-2">
+            <Card>
+              <p style={{margin:"0 0 0.65rem",fontWeight:600,fontSize:"0.82rem",color:C.text}}>Evolución mensual</p>
+              <div style={{display:"flex",gap:"0.35rem",marginBottom:"0.5rem"}}><Badge color={C.green} bg={C.greenBg}>↑ Ingresos</Badge><Badge color={C.red} bg={C.redBg}>↓ Gastos</Badge></div>
+              <div style={{display:"flex",gap:"3px",alignItems:"flex-end",height:90}}>
+                {evolucion.map((m,i)=>{const max=Math.max(...evolucion.flatMap(e=>[e.ingresos,e.gastos]),1);return(
+                  <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
+                    <div style={{width:"100%",display:"flex",gap:2,alignItems:"flex-end",height:80}}>
+                      <div style={{flex:1,background:C.green,borderRadius:"2px 2px 0 0",opacity:0.75,height:`${(m.ingresos/max)*80}%`,minHeight:2}} title={fmt(m.ingresos)}/>
+                      <div style={{flex:1,background:C.red,borderRadius:"2px 2px 0 0",opacity:0.75,height:`${(m.gastos/max)*80}%`,minHeight:2}} title={fmt(m.gastos)}/>
+                    </div>
+                    <span style={{color:C.textSoft,fontSize:"0.6rem"}}>{m.label}</span>
+                  </div>
+                );})}
+              </div>
+            </Card>
+            <Card>
+              <p style={{margin:"0 0 0.65rem",fontWeight:600,fontSize:"0.82rem",color:C.text}}>Por categoría</p>
+              {gastosPorCat.length===0?<p style={{color:C.textSoft,fontSize:"0.82rem",marginTop:"1rem"}}>Sin gastos este mes.</p>:
+                <div style={{display:"flex",gap:"0.75rem",alignItems:"center"}}>
+                  <DonutChart slices={gastosPorCat} size={84}/>
+                  <div style={{flex:1,display:"flex",flexDirection:"column",gap:"0.3rem",overflow:"hidden"}}>
+                    {gastosPorCat.slice(0,5).map(c=><div key={c.id} style={{display:"flex",alignItems:"center",gap:"0.35rem"}}>
+                      <span style={{width:7,height:7,borderRadius:"50%",background:c.color,flexShrink:0}}/>
+                      <span style={{color:C.textMid,fontSize:"0.72rem",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.icono} {c.nombre}</span>
+                      <span style={{color:C.text,fontSize:"0.72rem",fontWeight:600,flexShrink:0}}>{fmt(c.value)}</span>
+                    </div>)}
+                  </div>
+                </div>
+              }
+            </Card>
+          </div>
+          <Card>
+            <p style={{margin:"0 0 0.65rem",fontWeight:600,fontSize:"0.82rem",color:C.text}}>Saldo por cuenta</p>
+            <div style={{display:"flex",flexWrap:"wrap",gap:"0.6rem"}}>
+              {misCuentas.map(c=><div key={c.id} style={{display:"flex",alignItems:"center",gap:"0.5rem",background:C.surfaceAlt,borderRadius:"0.5rem",padding:"0.5rem 0.8rem",border:`1px solid ${C.border}`,minWidth:140}}>
+                <span style={{width:9,height:9,borderRadius:"50%",background:c.color,flexShrink:0}}/>
+                <div>
+                  <p style={{margin:0,color:C.textMid,fontSize:"0.7rem"}}>{c.nombre}</p>
+                  <p style={{margin:0,fontWeight:700,fontSize:"0.9rem",fontFamily:"'Playfair Display',serif",color:(saldosCuenta[c.id]||0)>=0?C.green:C.red}}>{fmt(saldosCuenta[c.id]||0)}</p>
+                </div>
+              </div>)}
+            </div>
+          </Card>
+        </div>}
+
+        {vista==="movimientos"&&<div>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"1rem"}}>
+            <h2 style={{margin:0,fontSize:"1rem",fontWeight:600}}>Movimientos</h2>
+            <Btn onClick={()=>setModal("movimiento")}>＋ Añadir</Btn>
+          </div>
+          <Card style={{marginBottom:"0.75rem"}}>
+            <div className="grid-filtros">
+              {[
+                {label:"Mes",content:<input type="month" value={filtro.mes} onChange={e=>setFiltro(f=>({...f,mes:e.target.value}))} style={inputStyle}/>},
+                {label:"Cuenta",content:<select value={filtro.cuenta} onChange={e=>setFiltro(f=>({...f,cuenta:e.target.value}))} style={inputStyle}><option value="">Todas</option>{misCuentas.map(c=><option key={c.id} value={c.id}>{c.nombre}</option>)}</select>},
+                {label:"Categoría",content:<select value={filtro.categoria} onChange={e=>setFiltro(f=>({...f,categoria:e.target.value}))} style={inputStyle}><option value="">Todas</option>{misCats.map(c=><option key={c.id} value={c.id}>{c.icono} {c.nombre}</option>)}</select>},
+              ].map(({label,content})=><div key={label}><label style={{display:"block",color:C.textMid,fontSize:"0.72rem",marginBottom:"0.3rem",fontWeight:500}}>{label}</label>{content}</div>)}
+            </div>
+            <div style={{marginTop:"0.65rem",display:"flex",gap:"0.5rem",flexWrap:"wrap"}}>
+              <Badge color={C.green} bg={C.greenBg}>↑ {fmt(ingresosMes)}</Badge>
+              <Badge color={C.red} bg={C.redBg}>↓ {fmt(gastosMes)}</Badge>
+              <Badge color={C.accent} bg={C.accentBg}>= {fmt(ingresosMes-gastosMes)}</Badge>
+            </div>
+          </Card>
+          {movsFiltrados.length===0?<Card><p style={{color:C.textSoft,textAlign:"center",padding:"2rem 0",fontSize:"0.875rem"}}>Sin movimientos para este filtro.</p></Card>:
+            <div style={{display:"flex",flexDirection:"column",gap:"0.4rem"}}>
+              {movsFiltrados.map(m=>{
+                const cat=misCats.find(c=>c.id===m.categoria_id);
+                const cta=misCuentas.find(c=>c.id===m.cuenta_id);
+                const ctaDest=m.cuenta_dest_id&&misCuentas.find(c=>c.id===m.cuenta_dest_id);
+                const isI=m.tipo==="ingreso",isT=m.tipo==="transferencia";
+                const [col,bgCol]=isT?[C.blue,C.blueBg]:isI?[C.green,C.greenBg]:[C.red,C.redBg];
+                return <Card key={m.id} style={{display:"flex",alignItems:"center",gap:"0.65rem",padding:"0.7rem 1rem"}}>
+                  <div style={{width:34,height:34,borderRadius:"0.5rem",flexShrink:0,background:bgCol,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"1rem"}}>
+                    {isT?"↔":cat?.icono||(isI?"↑":"↓")}
+                  </div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <p style={{margin:0,fontWeight:500,fontSize:"0.85rem",color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.concepto||(isT?"Transferencia":cat?.nombre||"Sin categoría")}</p>
+                    <p style={{margin:"0.1rem 0 0",color:C.textSoft,fontSize:"0.72rem"}}>{fmtDate(m.fecha)} · {cta?.nombre}{ctaDest&&<> → {ctaDest.nombre}</>}{!isT&&cat&&<> · {cat.nombre}</>}</p>
+                  </div>
+                  <span style={{fontWeight:700,fontSize:"0.9rem",color:col,flexShrink:0,fontFamily:"'Playfair Display',serif"}}>{isI?"+":isT?"":"-"}{fmt(m.importe)}</span>
+                  <button onClick={()=>delMovimiento(m.id)} style={{background:"none",border:"none",color:C.textSoft,cursor:"pointer",fontSize:"0.85rem",padding:"0.2rem",flexShrink:0,opacity:0.6}}>✕</button>
+                </Card>;
+              })}
+            </div>
+          }
+        </div>}
+
+        {vista==="cuentas"&&<div>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"1rem"}}>
+            <h2 style={{margin:0,fontSize:"1rem",fontWeight:600}}>Cuentas</h2>
+            <Btn onClick={()=>setModal("cuenta")}>＋ Nueva cuenta</Btn>
+          </div>
+          <div className="grid-fil">
+            {misCuentas.map(c=><Card key={c.id} style={{borderLeft:`3px solid ${c.color}`}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                <div><p style={{margin:0,fontWeight:600,fontSize:"0.875rem",color:C.text}}>{c.nombre}</p><p style={{margin:"0.15rem 0 0",color:C.textSoft,fontSize:"0.72rem"}}>{TIPOS_CUENTA.find(t=>t.value===c.tipo)?.label||c.tipo}</p></div>
+                <button onClick={()=>delCuenta(c.id)} style={{background:"none",border:"none",color:C.textSoft,cursor:"pointer",fontSize:"0.8rem",opacity:0.6}}>✕</button>
+              </div>
+              <p style={{margin:"0.7rem 0 0",fontSize:"1.25rem",fontWeight:700,letterSpacing:"-0.02em",fontFamily:"'Playfair Display',serif",color:(saldosCuenta[c.id]||0)>=0?C.green:C.red}}>{fmt(saldosCuenta[c.id]||0)}</p>
+              <p style={{margin:"0.2rem 0 0",color:C.textSoft,fontSize:"0.7rem"}}>Inicial: {fmt(c.saldo_inicial||0)}</p>
+            </Card>)}
+          </div>
+        </div>}
+
+        {vista==="categorias"&&<div>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"1rem"}}>
+            <h2 style={{margin:0,fontSize:"1rem",fontWeight:600}}>Categorías</h2>
+            <Btn onClick={()=>setModal("categoria")}>＋ Nueva categoría</Btn>
+          </div>
+          {["gasto","ingreso"].map(tipo=><div key={tipo} style={{marginBottom:"1.25rem"}}>
+            <p style={{color:tipo==="gasto"?C.red:C.green,fontSize:"0.72rem",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"0.5rem"}}>{tipo==="gasto"?"↓ Gastos":"↑ Ingresos"}</p>
+            <div style={{display:"flex",flexWrap:"wrap",gap:"0.4rem"}}>
+              {misCats.filter(c=>c.tipo===tipo).map(c=><div key={c.id} style={{display:"flex",alignItems:"center",gap:"0.4rem",background:C.surface,border:`1px solid ${C.border}`,borderRadius:"0.5rem",padding:"0.4rem 0.65rem",fontSize:"0.82rem",color:C.text}}>
+                <span style={{fontSize:"0.95rem"}}>{c.icono}</span><span>{c.nombre}</span>
+                <button onClick={()=>delCategoria(c.id)} style={{background:"none",border:"none",color:C.textSoft,cursor:"pointer",fontSize:"0.75rem",padding:0,opacity:0.6,marginLeft:"0.1rem"}}>✕</button>
+              </div>)}
+            </div>
+          </div>)}
+        </div>}
+
+      </main>
+
+      {modal==="movimiento"&&<MovimientoModal cuentas={misCuentas} categorias={misCats} movimientos={misMov} onSave={addMovimiento} onClose={()=>setModal(null)}/>}
+      {modal==="cuenta"&&<CuentaModal onSave={addCuenta} onClose={()=>setModal(null)}/>}
+      {modal==="categoria"&&<CategoriaModal onSave={addCategoria} onClose={()=>setModal(null)}/>}
+      {modal==="perfil"&&<PerfilModal perfiles={perfiles} activo={perfilActivo} onCambiar={id=>{setPerfilActivo(id);setModal(null);}} onAdd={addPerfil} onDel={delPerfil} onClose={()=>setModal(null)}/>}
+    </div>
+  );
+}
+
+// ── Modales ───────────────────────────────────────────────────────────────────
+function MovimientoModal({cuentas,categorias,movimientos,onSave,onClose}){
+  const [form,setForm]=useState({tipo:"gasto",fecha:today(),importe:"",concepto:"",cuentaId:cuentas[0]?.id||"",categoriaId:"",cuentaDestId:""});
+  const [saving,setSaving]=useState(false);
+  const set=(k,v)=>setForm(f=>({...f,[k]:v}));
+  const catsFiltradas=useMemo(()=>categorias.filter(c=>c.tipo===form.tipo),[categorias,form.tipo]);
+  useEffect(()=>{if(form.tipo!=="transferencia"){const valid=catsFiltradas.find(c=>c.id===form.categoriaId);if(!valid)set("categoriaId",catsFiltradas[0]?.id||"");}},[form.tipo]);
+  const conceptosPrevios=useMemo(()=>[...new Set(movimientos.map(m=>m.concepto).filter(Boolean))],[movimientos]);
+  async function handleSave(){if(!form.importe||!form.cuentaId||!form.fecha){alert("Rellena los campos obligatorios.");return;}if(form.tipo==="transferencia"&&!form.cuentaDestId){alert("Selecciona cuenta destino.");return;}setSaving(true);try{await onSave(form);}catch(e){alert("Error: "+e.message);}finally{setSaving(false);}}
+  const varBtn=form.tipo==="ingreso"?"success":form.tipo==="transferencia"?"blue":"danger";
+  return(<Modal title="Nuevo movimiento" onClose={onClose}>
+    <div style={{display:"flex",gap:"0.4rem",marginBottom:"1.1rem"}}>
+      {[["gasto","↓ Gasto"],["ingreso","↑ Ingreso"],["transferencia","↔ Transferencia"]].map(([v,l])=>{
+        const ac=v==="ingreso"?C.green:v==="transferencia"?C.blue:C.red;
+        const bg=v==="ingreso"?C.greenBg:v==="transferencia"?C.blueBg:C.redBg;
+        return <button key={v} onClick={()=>set("tipo",v)} style={{flex:1,padding:"0.45rem 0.25rem",borderRadius:"0.5rem",cursor:"pointer",fontWeight:600,fontSize:"0.78rem",background:form.tipo===v?bg:C.surfaceAlt,color:form.tipo===v?ac:C.textMid,border:`1px solid ${form.tipo===v?ac:C.border}`}}>{l}</button>;
+      })}
+    </div>
+    <Input label="Fecha *" type="date" value={form.fecha} onChange={e=>set("fecha",e.target.value)}/>
+    <Input label="Importe (€) *" type="number" min="0" step="0.01" placeholder="0,00" value={form.importe} onChange={e=>set("importe",e.target.value)}/>
+    <AutocompleteInput label="Concepto" value={form.concepto} onChange={v=>set("concepto",v)} sugerencias={conceptosPrevios}/>
+    <Select label={form.tipo==="transferencia"?"Cuenta origen *":"Cuenta *"} value={form.cuentaId} onChange={e=>set("cuentaId",e.target.value)}>
+      {cuentas.map(c=><option key={c.id} value={c.id}>{c.nombre}</option>)}
+    </Select>
+    {form.tipo==="transferencia"&&<Select label="Cuenta destino *" value={form.cuentaDestId} onChange={e=>set("cuentaDestId",e.target.value)}><option value="">Selecciona...</option>{cuentas.filter(c=>c.id!==form.cuentaId).map(c=><option key={c.id} value={c.id}>{c.nombre}</option>)}</Select>}
+    {form.tipo!=="transferencia"&&<Field label="Categoría"><select value={form.categoriaId} onChange={e=>set("categoriaId",e.target.value)} style={inputStyle}><option value="">— Sin categoría —</option>{catsFiltradas.map(c=><option key={c.id} value={c.id}>{c.icono} {c.nombre}</option>)}</select></Field>}
+    <div style={{display:"flex",justifyContent:"flex-end",gap:"0.4rem",marginTop:"0.5rem"}}>
+      <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+      <Btn variant={varBtn} onClick={handleSave} disabled={saving}>{saving?"Guardando…":"Guardar"}</Btn>
+    </div>
+  </Modal>);
+}
+
+function CuentaModal({onSave,onClose}){
+  const [form,setForm]=useState({nombre:"",tipo:"corriente",color:PALETTE[0],saldoInicial:"0"});
+  const [saving,setSaving]=useState(false);
+  const set=(k,v)=>setForm(f=>({...f,[k]:v}));
+  return(<Modal title="Nueva cuenta" onClose={onClose}>
+    <Input label="Nombre *" placeholder="Ej: Banco Santander" value={form.nombre} onChange={e=>set("nombre",e.target.value)}/>
+    <Select label="Tipo *" value={form.tipo} onChange={e=>set("tipo",e.target.value)}>{TIPOS_CUENTA.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}</Select>
+    <Input label="Saldo inicial (€)" type="number" step="0.01" value={form.saldoInicial} onChange={e=>set("saldoInicial",e.target.value)}/>
+    <Field label="Color"><div style={{display:"flex",gap:"0.45rem",flexWrap:"wrap"}}>{PALETTE.map(c=><button key={c} onClick={()=>set("color",c)} style={{width:26,height:26,borderRadius:"50%",background:c,cursor:"pointer",border:form.color===c?`2px solid ${C.text}`:"2px solid transparent",boxShadow:form.color===c?"0 0 0 2px #fff inset":""}}/>)}</div></Field>
+    <div style={{display:"flex",justifyContent:"flex-end",gap:"0.4rem",marginTop:"0.5rem"}}>
+      <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+      <Btn disabled={saving} onClick={async()=>{if(!form.nombre){alert("Escribe un nombre.");return;}setSaving(true);try{await onSave(form);}catch(e){alert("Error: "+e.message);}finally{setSaving(false);}}}>{saving?"Guardando…":"Crear"}</Btn>
+    </div>
+  </Modal>);
+}
+
+function CategoriaModal({onSave,onClose}){
+  const [form,setForm]=useState({nombre:"",tipo:"gasto",icono:"📦"});
+  const [saving,setSaving]=useState(false);
+  const set=(k,v)=>setForm(f=>({...f,[k]:v}));
+  const ICONOS=["🛒","🍽️","☕","🚌","⛽","🅿️","🏠","🏢","💡","📱","🛡️","💊","🏋️","👕","🎬","🎮","✈️","📚","📰","📺","🐾","🎁","🪴","✂️","🧾","📦","💼","💰","🏦","📈","🛍️","🏛️","👴","➕"];
+  return(<Modal title="Nueva categoría" onClose={onClose}>
+    <Input label="Nombre *" placeholder="Ej: Gimnasio" value={form.nombre} onChange={e=>set("nombre",e.target.value)}/>
+    <Field label="Tipo"><div style={{display:"flex",gap:"0.4rem"}}>{[["gasto","↓ Gasto",C.red,C.redBg],["ingreso","↑ Ingreso",C.green,C.greenBg]].map(([v,l,col,bg])=><button key={v} onClick={()=>set("tipo",v)} style={{flex:1,padding:"0.45rem",borderRadius:"0.5rem",cursor:"pointer",fontWeight:600,fontSize:"0.82rem",background:form.tipo===v?bg:C.surfaceAlt,color:form.tipo===v?col:C.textMid,border:`1px solid ${form.tipo===v?col:C.border}`}}>{l}</button>)}</div></Field>
+    <Field label="Icono"><div style={{display:"flex",flexWrap:"wrap",gap:"0.35rem",maxHeight:130,overflowY:"auto",padding:"0.25rem 0"}}>{ICONOS.map(ic=><button key={ic} onClick={()=>set("icono",ic)} style={{background:form.icono===ic?C.accentBg:C.surfaceAlt,border:`1px solid ${form.icono===ic?C.accent:C.border}`,borderRadius:"0.4rem",padding:"0.3rem 0.35rem",cursor:"pointer",fontSize:"1rem",lineHeight:1}}>{ic}</button>)}</div></Field>
+    <div style={{display:"flex",justifyContent:"flex-end",gap:"0.4rem",marginTop:"0.5rem"}}>
+      <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+      <Btn disabled={saving} onClick={async()=>{if(!form.nombre){alert("Escribe un nombre.");return;}setSaving(true);try{await onSave(form);}catch(e){alert("Error: "+e.message);}finally{setSaving(false);}}}>{saving?"Guardando…":"Crear"}</Btn>
+    </div>
+  </Modal>);
+}
+
+function PerfilModal({perfiles,activo,onCambiar,onAdd,onDel,onClose}){
+  const [creando,setCreando]=useState(false);
+  const [form,setForm]=useState({nombre:"",icono:"👤",color:PALETTE[0]});
+  const [saving,setSaving]=useState(false);
+  const set=(k,v)=>setForm(f=>({...f,[k]:v}));
+  const ICONOS_P=["👤","👫","👨‍👩‍👧","🏠","💑","🧑","👨","👩","🧒","⭐"];
+  return(<Modal title="Perfiles" onClose={onClose}>
+    <div style={{display:"flex",flexDirection:"column",gap:"0.5rem",marginBottom:"1rem"}}>
+      {perfiles.map(p=><div key={p.id} style={{display:"flex",alignItems:"center",gap:"0.75rem",padding:"0.7rem 0.9rem",borderRadius:"0.6rem",cursor:"pointer",background:p.id===activo?p.color+"18":C.surfaceAlt,border:`1px solid ${p.id===activo?p.color+"55":C.border}`}} onClick={()=>onCambiar(p.id)}>
+        <span style={{fontSize:"1.4rem",lineHeight:1}}>{p.icono}</span>
+        <div style={{flex:1}}>
+          <p style={{margin:0,fontWeight:600,fontSize:"0.875rem",color:p.id===activo?p.color:C.text}}>{p.nombre}</p>
+          {p.id===activo&&<p style={{margin:0,fontSize:"0.7rem",color:p.color,opacity:0.8}}>Perfil activo</p>}
+        </div>
+        <span style={{width:10,height:10,borderRadius:"50%",background:p.color,flexShrink:0}}/>
+        {perfiles.length>1&&<button onClick={e=>{e.stopPropagation();onDel(p.id);}} style={{background:"none",border:"none",color:C.textSoft,cursor:"pointer",fontSize:"0.8rem",padding:"0.2rem",opacity:0.5}}>✕</button>}
+      </div>)}
+    </div>
+    {!creando
+      ?<button onClick={()=>setCreando(true)} style={{width:"100%",padding:"0.6rem",borderRadius:"0.5rem",border:`1px dashed ${C.borderFoc}`,background:"none",color:C.textMid,cursor:"pointer",fontSize:"0.85rem",fontWeight:500,fontFamily:"'Plus Jakarta Sans',system-ui,sans-serif"}}>＋ Nuevo perfil</button>
+      :<div style={{borderTop:`1px solid ${C.border}`,paddingTop:"1rem",marginTop:"0.25rem"}}>
+        <Input label="Nombre *" placeholder="Ej: Gastos comunes" value={form.nombre} onChange={e=>set("nombre",e.target.value)}/>
+        <Field label="Icono"><div style={{display:"flex",flexWrap:"wrap",gap:"0.35rem"}}>{ICONOS_P.map(ic=><button key={ic} onClick={()=>set("icono",ic)} style={{background:form.icono===ic?C.accentBg:C.surfaceAlt,border:`1px solid ${form.icono===ic?C.accent:C.border}`,borderRadius:"0.4rem",padding:"0.3rem 0.4rem",cursor:"pointer",fontSize:"1.2rem",lineHeight:1}}>{ic}</button>)}</div></Field>
+        <Field label="Color"><div style={{display:"flex",gap:"0.45rem",flexWrap:"wrap"}}>{PALETTE.map(c=><button key={c} onClick={()=>set("color",c)} style={{width:24,height:24,borderRadius:"50%",background:c,cursor:"pointer",border:form.color===c?`2px solid ${C.text}`:"2px solid transparent"}}/>)}</div></Field>
+        <div style={{display:"flex",justifyContent:"flex-end",gap:"0.4rem"}}>
+          <Btn variant="ghost" onClick={()=>setCreando(false)}>Cancelar</Btn>
+          <Btn disabled={saving} onClick={async()=>{if(!form.nombre){alert("Escribe un nombre.");return;}setSaving(true);try{await onAdd(form);}catch(e){alert("Error: "+e.message);}finally{setSaving(false);}}}>{saving?"Creando…":"Crear perfil"}</Btn>
+        </div>
+      </div>
+    }
+  </Modal>);
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+  </script>
+</body>
+</html>
