@@ -496,7 +496,66 @@ function ProfModal({profs,activo,onCambiar,onAdd,onDel,onClose}){
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(h(App,null));
+// ── Login ─────────────────────────────────────────────────────────────────────
+const PWD_HASH = "526f03113586ad6de46545ee7d82cf1ef9f3f24fc02f7b688c2e6814ce48f782";
+const AUTH_KEY = "perricas_auth";
+
+async function hashStr(str) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+
+function LoginScreen({onAuth}) {
+  const [pwd, setPwd] = useState("");
+  const [err, setErr] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  async function handleLogin() {
+    if (!pwd) return;
+    setLoading(true);
+    const h2 = await hashStr(pwd);
+    if (h2 === PWD_HASH) {
+      localStorage.setItem(AUTH_KEY, "1");
+      onAuth();
+    } else {
+      setErr(true);
+      setLoading(false);
+      setPwd("");
+    }
+  }
+
+  function onKey(e) { if (e.key === "Enter") handleLogin(); }
+
+  return h("div", {style:{minHeight:"100vh",background:"#f4f3f0",display:"flex",alignItems:"center",justifyContent:"center",padding:"1rem"}},
+    h("div", {style:{background:"#faf9f7",borderRadius:"1rem",padding:"2rem",width:"100%",maxWidth:360,boxShadow:"0 8px 40px rgba(44,42,39,.12)",border:"1px solid #e0ddd8"}},
+      h("div", {style:{textAlign:"center",marginBottom:"1.75rem"}},
+        h("div", {style:{fontSize:"2rem",marginBottom:".5rem"}}, "◈"),
+        h("h1", {style:{margin:0,fontFamily:"'Playfair Display',serif",fontSize:"1.5rem",color:"#2c2a27",fontWeight:600}}, "Perricas"),
+        h("p", {style:{margin:".4rem 0 0",color:"#a09c97",fontSize:".82rem"}}, "Introduce la contraseña para acceder")
+      ),
+      h("input", {
+        type:"password", value:pwd, placeholder:"Contraseña",
+        onChange:e=>{setPwd(e.target.value);setErr(false);},
+        onKeyDown:onKey,
+        autoFocus:true,
+        style:{width:"100%",boxSizing:"border-box",background:"#eeecea",border:`1px solid ${err?"#b85c4a":"#e0ddd8"}`,borderRadius:".5rem",color:"#2c2a27",padding:".65rem .75rem",fontSize:"0.95rem",outline:"none",marginBottom:".75rem"}
+      }),
+      err && h("p", {style:{margin:"0 0 .75rem",color:"#b85c4a",fontSize:".8rem",textAlign:"center"}}, "Contraseña incorrecta"),
+      h("button", {
+        onClick:handleLogin, disabled:loading||!pwd,
+        style:{width:"100%",background:"#7c6f5e",color:"#fff",border:"none",borderRadius:".5rem",padding:".7rem",fontSize:".9rem",fontWeight:600,cursor:pwd&&!loading?"pointer":"default",opacity:pwd&&!loading?1:.5}
+      }, loading?"Comprobando…":"Entrar")
+    )
+  );
+}
+
+function Root() {
+  const [auth, setAuth] = useState(!!localStorage.getItem(AUTH_KEY));
+  if (!auth) return h(LoginScreen, {onAuth:()=>setAuth(true)});
+  return h(App, null);
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(h(Root,null));
 </script>
 </body>
 </html>
