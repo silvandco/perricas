@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"/>
   <title>Perricas</title>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Playfair+Display:wght@600&display=swap"/>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Inter:wght@600;700&display=swap"/>
   <style>
     *,*::before,*::after{box-sizing:border-box}
     html,body{color-scheme:light;background:#f4f3f0;margin:0;padding:0;overflow-x:hidden;max-width:100vw;font-family:'Plus Jakarta Sans',system-ui,sans-serif}
@@ -261,7 +261,7 @@ function App({onLogout}){
       h("div",{className:"phi"},
         h("div",{style:{display:"flex",alignItems:"center",gap:".5rem",flexShrink:0}},
           h("span",{style:{fontSize:"1.1rem",color:C.ac}},"◈"),
-          h("span",{style:{fontWeight:700,fontSize:"1rem",color:C.tx,letterSpacing:"-.01em",fontFamily:"'Playfair Display',serif"}},"Perricas")
+          h("span",{style:{fontWeight:700,fontSize:"1rem",color:C.tx,letterSpacing:"-.01em",fontFamily:"'Inter',system-ui,sans-serif"}},"Perricas")
         ),
         h("nav",{className:"pnav"},...NAV.map(navBtn)),
         h("div",{className:"pact",style:{flexShrink:0}},
@@ -289,7 +289,7 @@ function App({onLogout}){
         ),
         h("div",{className:"g3"},...kpis.map(k=>h(Card,{key:k.lb,style:{background:k.bg,border:`1px solid ${k.c}22`}},
           h("p",{style:{margin:"0 0 .35rem",color:k.c,fontSize:".72rem",fontWeight:600,display:"flex",alignItems:"center",gap:".3rem"}},h("span",null,k.ic),k.lb),
-          h("p",{style:{margin:0,fontSize:"1.3rem",fontWeight:700,color:k.c,letterSpacing:"-.02em",fontFamily:"'Playfair Display',serif"}},fmt(k.v))
+          h("p",{style:{margin:0,fontSize:"1.3rem",fontWeight:700,color:k.c,letterSpacing:"-.02em",fontFamily:"'Inter',system-ui,sans-serif"}},fmt(k.v))
         ))),
         h("div",{className:"g2"},
           h(Card,null,
@@ -328,7 +328,7 @@ function App({onLogout}){
               h("span",{style:{width:9,height:9,borderRadius:"50%",background:c.color,flexShrink:0}}),
               h("div",null,
                 h("p",{style:{margin:0,color:C.tm,fontSize:".7rem"}},c.nombre),
-                h("p",{style:{margin:0,fontWeight:700,fontSize:".9rem",fontFamily:"'Playfair Display',serif",color:(saldos[c.id]||0)>=0?C.gn:C.rd}},fmt(saldos[c.id]||0))
+                h("p",{style:{margin:0,fontWeight:700,fontSize:".9rem",fontFamily:"'Inter',system-ui,sans-serif",color:(saldos[c.id]||0)>=0?C.gn:C.rd}},fmt(saldos[c.id]||0))
               )
             )
           ))
@@ -365,7 +365,7 @@ function App({onLogout}){
               h("p",{style:{margin:0,fontWeight:500,fontSize:".85rem",color:C.tx,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},m.concepto||(isT?"Transferencia":cat?.nombre||"Sin categoría")),
               h("p",{style:{margin:".1rem 0 0",color:C.ts,fontSize:".72rem"}},fmtD(m.fecha)," · ",cta?.nombre,ctaD&&[" → ",ctaD.nombre],!isT&&cat&&[" · ",cat.nombre])
             ),
-            h("span",{style:{fontWeight:700,fontSize:".9rem",color:col,flexShrink:0,fontFamily:"'Playfair Display',serif"}},isI?"+":isT?"":"-",fmt(m.importe)),
+            h("span",{style:{fontWeight:700,fontSize:".9rem",color:col,flexShrink:0,fontFamily:"'Inter',system-ui,sans-serif"}},isI?"+":isT?"":"-",fmt(m.importe)),
             h("button",{onClick:()=>delMov(m.id),style:{background:"none",border:"none",color:C.ts,cursor:"pointer",fontSize:".85rem",padding:".2rem",flexShrink:0,opacity:.6}},"✕")
           );
         }))
@@ -384,7 +384,7 @@ function App({onLogout}){
               h("button",{onClick:()=>delCta(c.id),style:{background:"none",border:"none",color:C.ts,cursor:"pointer",fontSize:".8rem",opacity:.6,padding:".1rem"}},"✕")
             )
           ),
-          h("p",{style:{margin:".7rem 0 0",fontSize:"1.25rem",fontWeight:700,letterSpacing:"-.02em",fontFamily:"'Playfair Display',serif",color:(saldos[c.id]||0)>=0?C.gn:C.rd}},fmt(saldos[c.id]||0)),
+          h("p",{style:{margin:".7rem 0 0",fontSize:"1.25rem",fontWeight:700,letterSpacing:"-.02em",fontFamily:"'Inter',system-ui,sans-serif",color:(saldos[c.id]||0)>=0?C.gn:C.rd}},fmt(saldos[c.id]||0)),
           h("p",{style:{margin:".2rem 0 0",color:C.ts,fontSize:".7rem"}},"Inicial: ",fmt(c.saldo_inicial||0))
         )))
       ),
@@ -531,7 +531,7 @@ function LoginScreen({onAuth}) {
     h("div", {style:{background:"#faf9f7",borderRadius:"1rem",padding:"2rem",width:"100%",maxWidth:360,boxShadow:"0 8px 40px rgba(44,42,39,.12)",border:"1px solid #e0ddd8"}},
       h("div", {style:{textAlign:"center",marginBottom:"1.75rem"}},
         h("div", {style:{fontSize:"2rem",marginBottom:".5rem"}}, "◈"),
-        h("h1", {style:{margin:0,fontFamily:"'Playfair Display',serif",fontSize:"1.5rem",color:"#2c2a27",fontWeight:600}}, "Perricas"),
+        h("h1", {style:{margin:0,fontFamily:"'Inter',system-ui,sans-serif",fontSize:"1.5rem",color:"#2c2a27",fontWeight:600}}, "Perricas"),
         h("p", {style:{margin:".4rem 0 0",color:"#a09c97",fontSize:".82rem"}}, "Introduce la contraseña para acceder")
       ),
       h("input", {
