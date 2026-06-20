@@ -238,7 +238,7 @@ function App({onLogout}){
   async function addProf(f){const p={id:uid(),nombre:f.nombre,icono:f.icono,color:f.color};await sb.upsert("perfiles",p);await sb.upsert("cuentas",[{id:uid(),perfil_id:p.id,nombre:"Efectivo",tipo:"efectivo",color:PAL[2],saldo_inicial:0},{id:uid(),perfil_id:p.id,nombre:"Cuenta Corriente",tipo:"corriente",color:PAL[1],saldo_inicial:0}]);await sb.upsert("categorias",CATS.map(c=>({...c,id:`${p.id}_${c.id}`,perfil_id:p.id})));await reload();setPa(p.id);setModal(null);}
   async function delProf(id){if(profs.length<=1){alert("Mínimo un perfil.");return;}if(!confirm("¿Eliminar perfil y todos sus datos?"))return;await sb.del("perfiles",id);setProfs(ps=>ps.filter(p=>p.id!==id));setCtas(cs=>cs.filter(c=>c.perfil_id!==id));setCats(cs=>cs.filter(c=>c.perfil_id!==id));setMovs(ms=>ms.filter(m=>m.perfil_id!==id));if(pa===id)setPa(profs.find(p=>p.id!==id)?.id);setModal(null);}
 
-  const NAV=[{id:"dashboard",ic:"◈",lb:"Dashboard"},{id:"movimientos",ic:"≡",lb:"Movimientos"},{id:"cuentas",ic:"⬡",lb:"Cuentas"},{id:"categorias",ic:"◻",lb:"Categorías"}];
+  const NAV=[{id:"dashboard",ic:"◈",lb:"Dashboard"},{id:"movimientos",ic:"≡",lb:"Movimientos"},{id:"cuentas",ic:"⬡",lb:"Cuentas"},{id:"categorias",ic:"◻",lb:"Categorías"},{id:"informe",ic:"✦",lb:"Informe"}];
 
   if(load)return h(Spinner,{text:"Conectando con Supabase…"});
   if(err)return h("div",{style:{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:"100vh",gap:"1rem",padding:"2rem",textAlign:"center"}},
@@ -406,11 +406,139 @@ function App({onLogout}){
       )
     ),
 
+      vista==="informe"&&h(VistaInforme,{mMovs,mCats,mCtas,prof})
+    ),
+
     modal==="movimiento"&&h(MovModal,{ctas:mCtas,cats:mCats,movs:mMovs,onSave:addMov,onClose:()=>setModal(null)}),
     modal==="cuenta"&&h(CtaModal,{onSave:addCta,onClose:()=>setModal(null)}),
     modal==="editcuenta"&&ctaEditar&&h(CtaModal,{cta:ctaEditar,onSave:f=>editCta(ctaEditar.id,f),onClose:()=>{setModal(null);setCtaEditar(null);}}),
     modal==="categoria"&&h(CatModal,{onSave:addCat,onClose:()=>setModal(null)}),
     modal==="perfil"&&h(ProfModal,{profs,activo:pa,onCambiar:id=>{setPa(id);setModal(null);},onAdd:addProf,onDel:delProf,onClose:()=>setModal(null)})
+  );
+}
+
+// ── Vista Informe ─────────────────────────────────────────────────────────────
+function VistaInforme({mMovs, mCats, mCtas, prof}) {
+  const hoy = new Date();
+  const mesInicio = new Date(hoy.getFullYear(), hoy.getMonth() - 2, 1).toISOString().slice(0,7);
+  const [desde, setDesde] = useState(mesInicio);
+  const [hasta, setHasta] = useState(hoy.toISOString().slice(0,7));
+  const [informe, setInforme] = useState(null);
+  const [cargando, setCargando] = useState(false);
+  const [error, setError] = useState(null);
+
+  async function generarInforme() {
+    setCargando(true); setError(null); setInforme(null);
+    try {
+      const movsFiltrados = mMovs.filter(m => {
+        const mes = m.fecha.slice(0,7);
+        return mes >= desde && mes <= hasta;
+      });
+
+      if (movsFiltrados.length === 0) {
+        setError("No hay movimientos en el periodo seleccionado.");
+        return;
+      }
+
+      const ingresos = movsFiltrados.filter(m=>m.tipo==="ingreso").reduce((s,m)=>s+m.importe,0);
+      const gastos   = movsFiltrados.filter(m=>m.tipo==="gasto"  ).reduce((s,m)=>s+m.importe,0);
+
+      // Gastos por categoría
+      const porCat = {};
+      movsFiltrados.filter(m=>m.tipo==="gasto").forEach(m=>{
+        const cat = mCats.find(c=>c.id===m.categoria_id);
+        const nombre = cat ? `${cat.icono} ${cat.nombre}` : "Sin categoría";
+        porCat[nombre] = (porCat[nombre]||0) + m.importe;
+      });
+      const catsSorted = Object.entries(porCat).sort((a,b)=>b[1]-a[1]);
+
+      // Evolución mensual
+      const meses = {};
+      movsFiltrados.forEach(m=>{
+        const mes = m.fecha.slice(0,7);
+        if (!meses[mes]) meses[mes] = {ingresos:0, gastos:0};
+        if (m.tipo==="ingreso") meses[mes].ingresos += m.importe;
+        if (m.tipo==="gasto")   meses[mes].gastos   += m.importe;
+      });
+
+      const resumen = `
+Perfil: ${prof?.icono} ${prof?.nombre}
+Periodo: ${desde} a ${hasta}
+Total ingresos: ${ingresos.toFixed(2)}€
+Total gastos: ${gastos.toFixed(2)}€
+Balance: ${(ingresos-gastos).toFixed(2)}€
+Tasa de ahorro: ${ingresos>0?((1-gastos/ingresos)*100).toFixed(1):0}%
+
+Gastos por categoría:
+${catsSorted.map(([k,v])=>`  ${k}: ${v.toFixed(2)}€`).join("\n")}
+
+Evolución mensual:
+${Object.entries(meses).sort().map(([m,v])=>`  ${m}: ingresos ${v.ingresos.toFixed(2)}€ / gastos ${v.gastos.toFixed(2)}€`).join("\n")}
+      `.trim();
+
+      const resp = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          model: "claude-sonnet-4-6",
+          max_tokens: 1000,
+          system: "Eres un asesor financiero personal experto. Analiza los datos de contabilidad doméstica y genera un informe detallado en español con: 1) Resumen ejecutivo, 2) Análisis de ingresos y gastos, 3) Categorías donde más se gasta, 4) Tendencias mensuales, 5) Recomendaciones concretas y accionables. Usa un tono cercano pero profesional. Formatea con secciones claras usando emojis.",
+          messages: [{role:"user", content:`Analiza estos datos financieros y genera un informe de salud financiera detallado:\n\n${resumen}`}]
+        })
+      });
+
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error?.message || "Error en la API");
+      setInforme(data.content[0].text);
+    } catch(e) {
+      setError("Error generando el informe: " + e.message);
+    } finally {
+      setCargando(false);
+    }
+  }
+
+  return h("div", null,
+    h("div", {style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"1rem"}},
+      h("h2", {style:{margin:0,fontSize:"1rem",fontWeight:600}}, "✦ Informe financiero")
+    ),
+
+    h(Card, {style:{marginBottom:"1rem"}},
+      h("p", {style:{margin:"0 0 .75rem",fontWeight:600,fontSize:".82rem",color:C.tx}}, "Selecciona el periodo"),
+      h("div", {style:{display:"flex",gap:"1rem",flexWrap:"wrap",alignItems:"flex-end"}},
+        h("div", null,
+          h("label", {style:{display:"block",color:C.tm,fontSize:".72rem",marginBottom:".3rem",fontWeight:500}}, "Desde"),
+          h("input", {type:"month", value:desde, onChange:e=>setDesde(e.target.value), style:IS})
+        ),
+        h("div", null,
+          h("label", {style:{display:"block",color:C.tm,fontSize:".72rem",marginBottom:".3rem",fontWeight:500}}, "Hasta"),
+          h("input", {type:"month", value:hasta, onChange:e=>setHasta(e.target.value), style:IS})
+        ),
+        h(Btn, {onClick:generarInforme, disabled:cargando},
+          cargando ? "Analizando…" : "✦ Generar informe"
+        )
+      )
+    ),
+
+    cargando && h("div", {style:{display:"flex",flexDirection:"column",alignItems:"center",gap:"1rem",padding:"3rem",color:C.tm}},
+      h("div", {style:{width:36,height:36,border:`3px solid ${C.bd}`,borderTopColor:C.ac,borderRadius:"50%",animation:"spin .8s linear infinite"}}),
+      h("p", {style:{margin:0,fontSize:".875rem"}}, "Claude está analizando tus finanzas…")
+    ),
+
+    error && h(Card, {style:{background:C.rb,border:`1px solid ${C.rd}44`}},
+      h("p", {style:{margin:0,color:C.rd,fontSize:".875rem"}}, error)
+    ),
+
+    informe && h(Card, null,
+      h("div", {style:{whiteSpace:"pre-wrap",lineHeight:1.7,fontSize:".875rem",color:C.tx}},
+        ...informe.split("\n").map((line, i) => {
+          if (line.startsWith("##") || /^[🔍📊💡⚠️✅📈💰🏦]/.test(line.trim())) {
+            return h("p", {key:i, style:{margin:"1rem 0 .35rem",fontWeight:700,fontSize:".95rem",color:C.ac}}, line.replace(/^#+\s*/,""));
+          }
+          if (line.trim() === "") return h("div", {key:i, style:{height:".5rem"}});
+          return h("p", {key:i, style:{margin:"0 0 .3rem"}}, line);
+        })
+      )
+    )
   );
 }
 
