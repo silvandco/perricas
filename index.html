@@ -457,18 +457,9 @@ function App({onLogout}){
         ))
       ),
 
-      vista==="importar"&&h(VistaImportar,{mCtas,mCats,mMovs,perfilActivo:pa,onImport:async(movs,ajuste)=>{
+      vista==="importar"&&h(VistaImportar,{mCtas,mCats,mMovs,perfilActivo:pa,onImport:async(movs)=>{
         for(const m of movs){await sb.upsert("movimientos",m);}
         setMovs(ms=>[...ms,...movs]);
-        if(ajuste){
-          const cta=ctas.find(c=>c.id===ajuste.cuentaId);
-          if(cta){
-            const nuevaSI=parseFloat(((cta.saldo_inicial||0)+ajuste.delta).toFixed(2));
-            const ctaAct={...cta,saldo_inicial:nuevaSI};
-            await sb.upsert("cuentas",ctaAct);
-            setCtas(cs=>cs.map(c=>c.id===ajuste.cuentaId?ctaAct:c));
-          }
-        }
         setVista("movimientos");
       }}),
       vista==="informe"&&h(VistaInforme,{mMovs,mCats,mCtas,prof})
@@ -488,7 +479,6 @@ function VistaImportar({mCtas, mCats, mMovs, perfilActivo, onImport}) {
   const [analizando, setAnalizando] = useState(false);
   const [importando, setImportando] = useState(false);
   const [error, setError] = useState(null);
-  const [ajusteSaldo, setAjusteSaldo] = useState(null);
   const [cuentaSelId, setCuentaSelId] = useState(mCtas[0]?.id||"");
 
   async function cargarExcel(e) {
@@ -496,7 +486,7 @@ function VistaImportar({mCtas, mCats, mMovs, perfilActivo, onImport}) {
     if (!file) return;
     if (!cuentaSelId) { alert("Selecciona primero la cuenta a la que pertenece este extracto."); return; }
     e.target.value = "";
-    setError(null); setFilas(null); setAjusteSaldo(null); setAnalizando(true);
+    setError(null); setFilas(null); setAnalizando(true);
     try {
       if (!window.XLSX) {
         await new Promise((res,rej)=>{
@@ -566,20 +556,6 @@ function VistaImportar({mCtas, mCats, mMovs, perfilActivo, onImport}) {
 
       setFilas(parsed);
 
-      // Calcular ajuste de saldo
-      if(saldoBBVA!==null&&mCtas.length>0){
-        const cta=mCtas.find(c=>c.id===cuentaSelId)||mCtas[0];
-        const saldoAct=mMovs.filter(m=>m.cuenta_id===cta.id).reduce((s,m)=>{
-          if(m.tipo==="ingreso")return s+m.importe;
-          if(m.tipo==="gasto")return s-m.importe;
-          return s;
-        },cta.saldo_inicial||0);
-        const sumImp=parsed.filter(r=>!r.skip&&r.tipo!=="transferencia").reduce((s,r)=>r.tipo==="ingreso"?s+r.importe:s-r.importe,0);
-        const saldoProy=saldoAct+sumImp;
-        const delta=saldoBBVA-saldoProy;
-        if(Math.abs(delta)>0.01) setAjusteSaldo({cuentaId:cta.id,cuentaNombre:cta.nombre,saldoBBVA,saldoActual:saldoAct,saldoProyectado:saldoProy,delta});
-      }
-
       // Clasificar con IA
       const paraClas=parsed.filter(r=>!r.skip&&r.tipo!=="transferencia");
       if(paraClas.length>0){
@@ -616,7 +592,7 @@ function VistaImportar({mCtas, mCats, mMovs, perfilActivo, onImport}) {
         importe:parseFloat(r.importe),concepto:r.concepto||null,
         cuenta_id:r.cuentaId,categoria_id:r.catId||null,cuenta_dest_id:null,
       }));
-      await onImport(movs,ajusteSaldo);
+      await onImport(movs);
     }catch(ex){alert("Error: "+ex.message);setImportando(false);}
   }
 
@@ -657,17 +633,8 @@ function VistaImportar({mCtas, mCats, mMovs, perfilActivo, onImport}) {
           h("div",{style:{display:"flex",gap:".5rem",marginLeft:"auto"}},
             h("button",{onClick:()=>setFilas(prev=>prev.map(r=>({...r,skip:false}))),style:{background:"none",border:`1px solid ${C.bd}`,borderRadius:".4rem",color:C.tm,cursor:"pointer",fontSize:".78rem",padding:".25rem .6rem"}},"✓ Todos"),
             h("button",{onClick:()=>setFilas(prev=>prev.map(r=>({...r,skip:true}))),style:{background:"none",border:`1px solid ${C.bd}`,borderRadius:".4rem",color:C.tm,cursor:"pointer",fontSize:".78rem",padding:".25rem .6rem"}},"✗ Ninguno"),
-            h("button",{onClick:()=>{setFilas(null);setAjusteSaldo(null);},style:{background:"none",border:"none",color:C.tm,cursor:"pointer",fontSize:".8rem"}},"← Cargar otro archivo")
+            h("button",{onClick:()=>{setFilas(null);},style:{background:"none",border:"none",color:C.tm,cursor:"pointer",fontSize:".8rem"}},"← Cargar otro archivo")
           )
-        )
-      ),
-      ajusteSaldo&&h(Card,{style:{background:"#eaf0f8",border:"1px solid "+C.bl+"44",marginBottom:"1rem"}},
-        h("p",{style:{margin:"0 0 .4rem",fontWeight:600,fontSize:".85rem",color:C.bl}},"💡 Ajuste de saldo"),
-        h("p",{style:{margin:0,color:C.tm,fontSize:".82rem",lineHeight:1.6}},
-          "Al importar, el saldo de \""+ajusteSaldo.cuentaNombre+"\" quedará en ",
-          h("strong",null,ajusteSaldo.saldoProyectado.toFixed(2)+"€"),
-          " pero el BBVA indica ",h("strong",null,ajusteSaldo.saldoBBVA.toFixed(2)+"€"),
-          ". Se ajustará el saldo inicial en ",h("strong",null,(ajusteSaldo.delta>0?"+":"")+ajusteSaldo.delta.toFixed(2)+"€"),"."
         )
       ),
       h("div",{style:{display:"flex",flexDirection:"column",gap:".35rem"}},
