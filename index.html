@@ -457,7 +457,7 @@ function App({onLogout}){
         ))
       ),
 
-      vista==="importar"&&h(VistaImportar,{mCtas,mCats,mMovs,perfilActivo:pa,onImport:async(movs)=>{
+      vista==="importar"&&h(VistaImportar,{mCtas,mCats,mMovs,saldos,perfilActivo:pa,onImport:async(movs)=>{
         for(const m of movs){await sb.upsert("movimientos",m);}
         setMovs(ms=>[...ms,...movs]);
         setVista("movimientos");
@@ -474,7 +474,7 @@ function App({onLogout}){
 }
 
 // ── Vista Importar ────────────────────────────────────────────────────────────
-function VistaImportar({mCtas, mCats, mMovs, perfilActivo, onImport}) {
+function VistaImportar({mCtas, mCats, mMovs, saldos, perfilActivo, onImport}) {
   const [filas, setFilas] = useState(null);
   const [analizando, setAnalizando] = useState(false);
   const [importando, setImportando] = useState(false);
@@ -701,12 +701,8 @@ function VistaImportar({mCtas, mCats, mMovs, perfilActivo, onImport}) {
         h("p",{style:{margin:"0 0 .6rem",fontWeight:600,fontSize:".8rem",color:C.ac}},"💳 Saldo proyectado tras importar"),
         h("div",{style:{display:"flex",flexWrap:"wrap",gap:".75rem"}},
           ...mCtas.map(cta=>{
-            // Saldo actual en Perricas
-            const saldoActual = mMovs.filter(m=>m.cuenta_id===cta.id).reduce((s,m)=>{
-              if(m.tipo==="ingreso") return s+m.importe;
-              if(m.tipo==="gasto")   return s-m.importe;
-              return s;
-            }, cta.saldo_inicial||0);
+            // Saldo actual del dashboard (ya calculado correctamente con saldo_inicial + movimientos)
+            const saldoActual = saldos[cta.id]||0;
             // Impacto de los movimientos seleccionados sobre esta cuenta
             const impacto = (filas||[]).filter(r=>!r.skip).reduce((s,r)=>{
               if(r.cuentaId===cta.id){
@@ -718,16 +714,22 @@ function VistaImportar({mCtas, mCats, mMovs, perfilActivo, onImport}) {
               return s;
             },0);
             const saldoFinal = saldoActual + impacto;
-            const cambio = impacto!==0;
+            const cambio = Math.abs(impacto)>0.001;
+            // Último movimiento registrado en esta cuenta
+            const movsDeEsta = mMovs.filter(m=>m.cuenta_id===cta.id||m.cuenta_dest_id===cta.id);
+            const ultimaFecha = movsDeEsta.length>0 ? movsDeEsta.map(m=>m.fecha).sort().reverse()[0] : null;
             return h("div",{key:cta.id,style:{display:"flex",alignItems:"center",gap:".5rem",background:C.sf,borderRadius:".5rem",padding:".45rem .75rem",border:"1px solid "+C.bd}},
               h("span",{style:{width:8,height:8,borderRadius:"50%",background:cta.color,flexShrink:0}}),
               h("div",null,
-                h("p",{style:{margin:0,color:C.tm,fontSize:".7rem"}},cta.nombre),
-                h("p",{style:{margin:0,fontWeight:700,fontSize:".88rem",fontFamily:"'Inter',system-ui,sans-serif",color:saldoFinal>=0?C.gn:C.rd}},
+                h("p",{style:{margin:0,color:C.tm,fontSize:".7rem",fontWeight:500}},cta.nombre),
+                h("p",{style:{margin:"0.1rem 0 0",fontWeight:700,fontSize:".88rem",fontFamily:"'Inter',system-ui,sans-serif",color:saldoFinal>=0?C.gn:C.rd}},
                   fmt(saldoFinal),
                   cambio&&h("span",{style:{fontSize:".7rem",fontWeight:500,color:impacto>=0?C.gn:C.rd,marginLeft:".35rem"}},
                     (impacto>=0?"+":"")+fmt(impacto)
                   )
+                ),
+                h("p",{style:{margin:"0.1rem 0 0",color:C.ts,fontSize:".68rem"}},
+                  ultimaFecha ? "Último mov.: "+fmtD(ultimaFecha) : "Sin movimientos"
                 )
               )
             );
