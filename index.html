@@ -551,7 +551,7 @@ function VistaImportar({mCtas, mCats, mMovs, perfilActivo, onImport}) {
         const clave = fecha+"_"+Math.abs(importe);
         const isDup = existentes.has(clave);
 
-        return {_id:"r"+i,fecha,concepto:obs||mov||concepto,textoParaCat:texto,importe:Math.abs(importe),tipo,cuentaId:cuentaSelId,catId:"",skip:isDup,dup:isDup,sugerencia:null};
+        return {_id:"r"+i,fecha,concepto:obs||mov||concepto,textoParaCat:texto,importe:Math.abs(importe),tipo,cuentaId:cuentaSelId,cuentaDestId:"",catId:"",skip:isDup,dup:isDup,sugerencia:null};
       }).filter(Boolean);
 
       setFilas(parsed);
@@ -590,7 +590,7 @@ function VistaImportar({mCtas, mCats, mMovs, perfilActivo, onImport}) {
         id:"bbva_"+r._id+"_"+Date.now()+"_"+Math.random().toString(36).slice(2),
         perfil_id:perfilActivo,tipo:r.tipo,fecha:r.fecha,
         importe:parseFloat(r.importe),concepto:r.concepto||null,
-        cuenta_id:r.cuentaId,categoria_id:r.catId||null,cuenta_dest_id:null,
+        cuenta_id:r.cuentaId,categoria_id:r.catId||null,cuenta_dest_id:r.tipo==="transferencia"?(r.cuentaDestId||null):null,
       }));
       await onImport(movs);
     }catch(ex){alert("Error: "+ex.message);setImportando(false);}
@@ -655,10 +655,23 @@ function VistaImportar({mCtas, mCats, mMovs, perfilActivo, onImport}) {
               h("option",{value:""},"Sin cat."),
               ...mCats.filter(c=>c.tipo===r.tipo).map(c=>h("option",{key:c.id,value:c.id},c.icono+" "+c.nombre))
             ),
-            h("select",{value:r.cuentaId,onChange:e=>updateFila(r._id,"cuentaId",e.target.value),disabled:r.skip,
-              style:{...IS,width:"auto",padding:".28rem .45rem",fontSize:".77rem"}},
-              ...mCtas.map(c=>h("option",{key:c.id,value:c.id},c.nombre))
-            ),
+            r.tipo==="transferencia"
+              ? h(Fragment,null,
+                  h("select",{value:r.cuentaId,onChange:e=>updateFila(r._id,"cuentaId",e.target.value),disabled:r.skip,
+                    style:{...IS,width:"auto",padding:".28rem .45rem",fontSize:".77rem"}},
+                    ...mCtas.map(c=>h("option",{key:c.id,value:c.id},"↑ "+c.nombre))
+                  ),
+                  h("span",{style:{color:C.ts,fontSize:".75rem",flexShrink:0}},"→"),
+                  h("select",{value:r.cuentaDestId,onChange:e=>updateFila(r._id,"cuentaDestId",e.target.value),disabled:r.skip,
+                    style:{...IS,width:"auto",padding:".28rem .45rem",fontSize:".77rem",borderColor:!r.cuentaDestId&&!r.skip?C.rd:C.bd}},
+                    h("option",{value:""},"Destino..."),
+                    ...mCtas.filter(c=>c.id!==r.cuentaId).map(c=>h("option",{key:c.id,value:c.id},"↓ "+c.nombre))
+                  )
+                )
+              : h("select",{value:r.cuentaId,onChange:e=>updateFila(r._id,"cuentaId",e.target.value),disabled:r.skip,
+                  style:{...IS,width:"auto",padding:".28rem .45rem",fontSize:".77rem"}},
+                  ...mCtas.map(c=>h("option",{key:c.id,value:c.id},c.nombre))
+                ),
             h("span",{style:{fontWeight:700,fontSize:".88rem",fontFamily:"'Inter',system-ui,sans-serif",
               color:r.tipo==="ingreso"?C.gn:r.tipo==="transferencia"?C.bl:C.rd,flexShrink:0,minWidth:72,textAlign:"right"}},
               (r.tipo==="ingreso"?"+":r.tipo==="transferencia"?"":"-")+r.importe.toFixed(2)+"€")
