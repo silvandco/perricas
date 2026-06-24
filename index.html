@@ -388,7 +388,7 @@ function App({onLogout}){
         h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"1rem"}},
           h("h2",{style:{margin:0,fontSize:"1rem",fontWeight:600}},"Movimientos"),
           h("div",{style:{display:"flex",gap:".5rem"}},
-            h(Btn,{small:true,variant:"ghost",onClick:()=>setVista("importar")},"⬆ Importar BBVA"),
+            h(Btn,{small:true,variant:"ghost",onClick:()=>setVista("importar")},"⬆ Importar"),
             h(Btn,{onClick:()=>setModal("movimiento")},"＋ Añadir")
           )
         ),
@@ -594,7 +594,7 @@ function VistaImportar({mCtas, mCats, mMovs, perfilActivo, onImport}) {
       return {_id:"v"+i,fecha,concepto:desc,textoParaCat:texto,importe,tipo,cuentaId:cuentaSelId,cuentaDestId:"",catId:"",skip:isDup,dup:isDup,sugerencia:null};
     }).filter(Boolean);
 
-    await clasificarConIA(parsed);
+    await clasificarConIA(parsed.sort((a,b)=>b.fecha.localeCompare(a.fecha)));
   }
 
   // ── Clasificación IA ────────────────────────────────────────────────────────
@@ -693,6 +693,45 @@ function VistaImportar({mCtas, mCats, mMovs, perfilActivo, onImport}) {
             h("button",{onClick:()=>setFilas(prev=>prev.map(r=>({...r,skip:true}))),style:{background:"none",border:"1px solid "+C.bd,borderRadius:".4rem",color:C.tm,cursor:"pointer",fontSize:".78rem",padding:".25rem .6rem"}},"✗ Ninguno"),
             h("button",{onClick:()=>setFilas(null),style:{background:"none",border:"none",color:C.tm,cursor:"pointer",fontSize:".8rem"}},"← Cargar otro")
           )
+        )
+      ),
+
+      // Saldos proyectados por cuenta
+      h(Card,{style:{marginBottom:"1rem",padding:".75rem 1rem",background:C.accentBg,border:"1px solid "+C.ac+"33"}},
+        h("p",{style:{margin:"0 0 .6rem",fontWeight:600,fontSize:".8rem",color:C.ac}},"💳 Saldo proyectado tras importar"),
+        h("div",{style:{display:"flex",flexWrap:"wrap",gap:".75rem"}},
+          ...mCtas.map(cta=>{
+            // Saldo actual en Perricas
+            const saldoActual = mMovs.filter(m=>m.cuenta_id===cta.id).reduce((s,m)=>{
+              if(m.tipo==="ingreso") return s+m.importe;
+              if(m.tipo==="gasto")   return s-m.importe;
+              return s;
+            }, cta.saldo_inicial||0);
+            // Impacto de los movimientos seleccionados sobre esta cuenta
+            const impacto = (filas||[]).filter(r=>!r.skip).reduce((s,r)=>{
+              if(r.cuentaId===cta.id){
+                if(r.tipo==="ingreso") return s+r.importe;
+                if(r.tipo==="gasto")   return s-r.importe;
+                if(r.tipo==="transferencia") return s-r.importe;
+              }
+              if(r.cuentaDestId===cta.id&&r.tipo==="transferencia") return s+r.importe;
+              return s;
+            },0);
+            const saldoFinal = saldoActual + impacto;
+            const cambio = impacto!==0;
+            return h("div",{key:cta.id,style:{display:"flex",alignItems:"center",gap:".5rem",background:C.sf,borderRadius:".5rem",padding:".45rem .75rem",border:"1px solid "+C.bd}},
+              h("span",{style:{width:8,height:8,borderRadius:"50%",background:cta.color,flexShrink:0}}),
+              h("div",null,
+                h("p",{style:{margin:0,color:C.tm,fontSize:".7rem"}},cta.nombre),
+                h("p",{style:{margin:0,fontWeight:700,fontSize:".88rem",fontFamily:"'Inter',system-ui,sans-serif",color:saldoFinal>=0?C.gn:C.rd}},
+                  fmt(saldoFinal),
+                  cambio&&h("span",{style:{fontSize:".7rem",fontWeight:500,color:impacto>=0?C.gn:C.rd,marginLeft:".35rem"}},
+                    (impacto>=0?"+":"")+fmt(impacto)
+                  )
+                )
+              )
+            );
+          })
         )
       ),
       h("div",{style:{display:"flex",flexDirection:"column",gap:".35rem"}},
