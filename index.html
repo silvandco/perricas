@@ -43,6 +43,19 @@
 'use strict';
 const {useState,useEffect,useMemo,useRef,useCallback,createElement:h,Fragment}=React;
 
+// Extraer token del hash de la URL INMEDIATAMENTE al cargar la página
+// Debe hacerse antes de que React arranque para que getHdr() ya tenga el token
+(function extractTokenEarly(){
+  const hash = window.location.hash;
+  if (!hash) return;
+  const params = new URLSearchParams(hash.slice(1));
+  const token = params.get("access_token");
+  if (token) {
+    localStorage.setItem("perricas_auth", token);
+    history.replaceState(null, "", window.location.pathname);
+  }
+})();
+
 // ── Supabase ──────────────────────────────────────────────────────────────────
 const SB_URL="https://tknbxtdwrvkzwqrtasim.supabase.co";
 const SB_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRrbmJ4dGR3cnZrendxcnRhc2ltIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE5MTc3MzcsImV4cCI6MjA5NzQ5MzczN30.8m2Ov1_XnL5-eui1qZiIU78QsTZEa5oDZzvqDhrjtV8";
@@ -924,19 +937,10 @@ const sbAuth = {
   }
 };
 
-// Extraer token del hash de la URL tras el redirect de Google
+// El token ya fue extraído por extractTokenEarly() al cargar la página
+// Esta función solo comprueba si hay token guardado
 function extractTokenFromUrl() {
-  const hash = window.location.hash;
-  if (!hash) return null;
-  const params = new URLSearchParams(hash.slice(1));
-  const token = params.get("access_token");
-  if (token) {
-    localStorage.setItem(AUTH_KEY, token);
-    // Limpiar el hash de la URL sin recargar
-    history.replaceState(null, "", window.location.pathname);
-    return token;
-  }
-  return null;
+  return localStorage.getItem("perricas_auth");
 }
 
 function LoginScreen({onAuth}) {
