@@ -465,10 +465,12 @@ function VistaImportar({mCtas, mCats, mMovs, perfilActivo, onImport}) {
   const [importando, setImportando] = useState(false);
   const [error, setError] = useState(null);
   const [ajusteSaldo, setAjusteSaldo] = useState(null);
+  const [cuentaSelId, setCuentaSelId] = useState(mCtas[0]?.id||"");
 
   async function cargarExcel(e) {
     const file = e.target.files[0];
     if (!file) return;
+    if (!cuentaSelId) { alert("Selecciona primero la cuenta a la que pertenece este extracto."); return; }
     e.target.value = "";
     setError(null); setFilas(null); setAjusteSaldo(null); setAnalizando(true);
     try {
@@ -535,14 +537,14 @@ function VistaImportar({mCtas, mCats, mMovs, perfilActivo, onImport}) {
         const clave = fecha+"_"+Math.abs(importe);
         const isDup = existentes.has(clave);
 
-        return {_id:"r"+i,fecha,concepto:obs||mov||concepto,textoParaCat:texto,importe:Math.abs(importe),tipo,cuentaId:mCtas[0]?.id||"",catId:"",skip:isDup,dup:isDup,sugerencia:null};
+        return {_id:"r"+i,fecha,concepto:obs||mov||concepto,textoParaCat:texto,importe:Math.abs(importe),tipo,cuentaId:cuentaSelId,catId:"",skip:isDup,dup:isDup,sugerencia:null};
       }).filter(Boolean);
 
       setFilas(parsed);
 
       // Calcular ajuste de saldo
       if(saldoBBVA!==null&&mCtas.length>0){
-        const cta=mCtas[0];
+        const cta=mCtas.find(c=>c.id===cuentaSelId)||mCtas[0];
         const saldoAct=mMovs.filter(m=>m.cuenta_id===cta.id).reduce((s,m)=>{
           if(m.tipo==="ingreso")return s+m.importe;
           if(m.tipo==="gasto")return s-m.importe;
@@ -602,16 +604,25 @@ function VistaImportar({mCtas, mCats, mMovs, perfilActivo, onImport}) {
       h("h2",{style:{margin:0,fontSize:"1rem",fontWeight:600}},"⬆ Importar movimientos BBVA"),
       filas&&pendientes>0&&h(Btn,{onClick:confirmarImport,disabled:importando},importando?"Importando...":"Importar "+pendientes+" movimientos")
     ),
-    !filas&&h(Card,{style:{textAlign:"center",padding:"2.5rem 1rem"}},
-      h("div",{style:{fontSize:"2rem",marginBottom:"1rem"}},"📄"),
-      h("p",{style:{color:C.tm,fontSize:".9rem",margin:"0 0 1.25rem"}},"Sube el Excel de últimos movimientos del BBVA"),
-      analizando
-        ?h("div",{style:{display:"flex",alignItems:"center",justifyContent:"center",gap:".75rem",color:C.tm}},
-            h("div",{style:{width:24,height:24,border:"3px solid "+C.bd,borderTopColor:C.ac,borderRadius:"50%",animation:"spin .8s linear infinite"}}),
-            h("span",{style:{fontSize:".875rem"}},"Analizando y clasificando con IA..."))
-        :h("label",{style:{display:"inline-block",background:C.ac,color:"#fff",borderRadius:".5rem",padding:".6rem 1.25rem",cursor:"pointer",fontWeight:600,fontSize:".875rem"}},
-            "Seleccionar archivo .xlsx",
-            h("input",{type:"file",accept:".xlsx,.xls",onChange:cargarExcel,style:{display:"none"}}))
+    !filas&&h(Card,{style:{padding:"2rem"}},
+      h("div",{style:{fontSize:"2rem",textAlign:"center",marginBottom:"1rem"}},"📄"),
+      h("p",{style:{color:C.tm,fontSize:".9rem",margin:"0 0 1.5rem",textAlign:"center"}},"Sube el Excel de últimos movimientos del BBVA"),
+      h(Field,{label:"1. ¿A qué cuenta pertenece este extracto?"},
+        h("select",{value:cuentaSelId,onChange:e=>setCuentaSelId(e.target.value),style:IS},
+          h("option",{value:""},"— Selecciona una cuenta —"),
+          ...mCtas.map(c=>h("option",{key:c.id,value:c.id},c.icono||"",c.nombre," (",c.tipo,")"))
+        )
+      ),
+      h("div",{style:{marginTop:".5rem"}},
+        h("label",{style:{display:"block",color:C.tm,fontSize:".775rem",marginBottom:".35rem",fontWeight:500}},"2. Selecciona el archivo Excel"),
+        analizando
+          ?h("div",{style:{display:"flex",alignItems:"center",gap:".75rem",color:C.tm,padding:".5rem 0"}},
+              h("div",{style:{width:24,height:24,border:"3px solid "+C.bd,borderTopColor:C.ac,borderRadius:"50%",animation:"spin .8s linear infinite"}}),
+              h("span",{style:{fontSize:".875rem"}},"Analizando y clasificando con IA..."))
+          :h("label",{style:{display:"inline-block",background:cuentaSelId?C.ac:C.sa,color:cuentaSelId?"#fff":C.ts,borderRadius:".5rem",padding:".6rem 1.25rem",cursor:cuentaSelId?"pointer":"default",fontWeight:600,fontSize:".875rem",transition:"background .15s"}},
+              "Seleccionar archivo .xlsx",
+              h("input",{type:"file",accept:".xlsx,.xls",onChange:cargarExcel,disabled:!cuentaSelId,style:{display:"none"}}))
+      )
     ),
     error&&h(Card,{style:{background:C.rb,border:"1px solid "+C.rd+"44",marginBottom:"1rem"}},h("p",{style:{margin:0,color:C.rd,fontSize:".875rem"}},error)),
     filas&&!analizando&&h("div",null,
@@ -872,62 +883,126 @@ function ProfModal({profs,activo,onCambiar,onAdd,onDel,onClose}){
   );
 }
 
-// ── Login ─────────────────────────────────────────────────────────────────────
-const PWD_HASH = "526f03113586ad6de46545ee7d82cf1ef9f3f24fc02f7b688c2e6814ce48f782";
+// ── Auth Google via Supabase ──────────────────────────────────────────────────
 const AUTH_KEY = "perricas_auth";
 
-async function hashStr(str) {
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
-  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+// Cliente Supabase Auth (usando la misma URL y KEY ya definidas)
+const sbAuth = {
+  async getSession() {
+    const r = await fetch(SB_URL+"/auth/v1/user", {
+      headers:{apikey:SB_KEY, Authorization:"Bearer "+(localStorage.getItem(AUTH_KEY)||"")}
+    });
+    if (!r.ok) return null;
+    return r.json();
+  },
+  async signInWithGoogle() {
+    const redirect = encodeURIComponent(window.location.href.split("?")[0]);
+    window.location.href = SB_URL+"/auth/v1/authorize?provider=google&redirect_to="+redirect;
+  },
+  async signOut() {
+    const token = localStorage.getItem(AUTH_KEY);
+    if (token) {
+      await fetch(SB_URL+"/auth/v1/logout", {
+        method:"POST",
+        headers:{apikey:SB_KEY, Authorization:"Bearer "+token, "Content-Type":"application/json"}
+      }).catch(()=>{});
+    }
+    localStorage.removeItem(AUTH_KEY);
+    localStorage.removeItem("perricas_user");
+  }
+};
+
+// Extraer token del hash de la URL tras el redirect de Google
+function extractTokenFromUrl() {
+  const hash = window.location.hash;
+  if (!hash) return null;
+  const params = new URLSearchParams(hash.slice(1));
+  const token = params.get("access_token");
+  if (token) {
+    localStorage.setItem(AUTH_KEY, token);
+    // Limpiar el hash de la URL sin recargar
+    history.replaceState(null, "", window.location.pathname);
+    return token;
+  }
+  return null;
 }
 
 function LoginScreen({onAuth}) {
-  const [pwd, setPwd] = useState("");
-  const [err, setErr] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState(null);
 
-  async function handleLogin() {
-    if (!pwd) return;
-    setLoading(true);
-    const h2 = await hashStr(pwd);
-    if (h2 === PWD_HASH) {
-      localStorage.setItem(AUTH_KEY, "1");
-      onAuth();
-    } else {
-      setErr(true);
-      setLoading(false);
-      setPwd("");
+  useEffect(()=>{
+    // Si venimos del redirect de Google, extraer el token
+    const token = extractTokenFromUrl();
+    if (token) { onAuth(); return; }
+    // Si ya hay sesión guardada, verificarla
+    const saved = localStorage.getItem(AUTH_KEY);
+    if (saved) {
+      setLoading(true);
+      sbAuth.getSession().then(u=>{
+        if (u && u.id) onAuth();
+        else { localStorage.removeItem(AUTH_KEY); setLoading(false); }
+      }).catch(()=>setLoading(false));
     }
+  },[]);
+
+  async function loginGoogle() {
+    setLoading(true); setErr(null);
+    try { await sbAuth.signInWithGoogle(); }
+    catch(e) { setErr("Error al conectar con Google: "+e.message); setLoading(false); }
   }
 
-  return h("div", {style:{minHeight:"100vh",background:"#f4f3f0",display:"flex",alignItems:"center",justifyContent:"center",padding:"1rem"}},
-    h("div", {style:{background:"#faf9f7",borderRadius:"1rem",padding:"2rem",width:"100%",maxWidth:360,boxShadow:"0 8px 40px rgba(44,42,39,.12)",border:"1px solid #e0ddd8"}},
-      h("div", {style:{textAlign:"center",marginBottom:"1.75rem"}},
-        h("div", {style:{fontSize:"2rem",marginBottom:".5rem"}}, "◈"),
-        h("h1", {style:{margin:0,fontFamily:"'Inter',system-ui,sans-serif",fontSize:"1.5rem",color:"#2c2a27",fontWeight:600}}, "Perricas"),
-        h("p", {style:{margin:".4rem 0 0",color:"#a09c97",fontSize:".82rem"}}, "Introduce la contraseña para acceder")
-      ),
-      h("input", {
-        type:"password", value:pwd, placeholder:"Contraseña",
-        onChange:e=>{setPwd(e.target.value);setErr(false);},
-        onKeyDown:e=>e.key==="Enter"&&handleLogin(),
-        autoFocus:true,
-        style:{width:"100%",boxSizing:"border-box",background:"#eeecea",border:"1px solid "+(err?"#b85c4a":"#e0ddd8"),borderRadius:".5rem",color:"#2c2a27",padding:".65rem .75rem",fontSize:"0.95rem",outline:"none",marginBottom:".75rem"}
-      }),
-      err && h("p", {style:{margin:"0 0 .75rem",color:"#b85c4a",fontSize:".8rem",textAlign:"center"}}, "Contraseña incorrecta"),
-      h("button", {
-        onClick:handleLogin, disabled:loading||!pwd,
-        style:{width:"100%",background:"#7c6f5e",color:"#fff",border:"none",borderRadius:".5rem",padding:".7rem",fontSize:".9rem",fontWeight:600,cursor:pwd&&!loading?"pointer":"default",opacity:pwd&&!loading?1:.5}
-      }, loading?"Comprobando…":"Entrar")
+  return h("div",{style:{minHeight:"100vh",background:"#f4f3f0",display:"flex",alignItems:"center",justifyContent:"center",padding:"1rem"}},
+    h("div",{style:{background:"#faf9f7",borderRadius:"1rem",padding:"2.5rem 2rem",width:"100%",maxWidth:360,boxShadow:"0 8px 40px rgba(44,42,39,.12)",border:"1px solid #e0ddd8",textAlign:"center"}},
+      h("div",{style:{fontSize:"2.5rem",marginBottom:".5rem"}},"◈"),
+      h("h1",{style:{margin:"0 0 .4rem",fontFamily:"'Inter',system-ui,sans-serif",fontSize:"1.6rem",color:"#2c2a27",fontWeight:700,letterSpacing:"-.02em"}},"Perricas"),
+      h("p",{style:{margin:"0 0 2rem",color:"#a09c97",fontSize:".85rem"}},"Contabilidad del hogar"),
+      loading
+        ?h("div",{style:{display:"flex",alignItems:"center",justifyContent:"center",gap:".75rem",color:"#6b6760",padding:"1rem"}},
+            h("div",{style:{width:22,height:22,border:"2px solid #e0ddd8",borderTopColor:"#7c6f5e",borderRadius:"50%",animation:"spin .8s linear infinite"}}),
+            h("span",{style:{fontSize:".875rem"}},"Conectando...")
+          )
+        :h("button",{onClick:loginGoogle,style:{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:".75rem",background:"#fff",border:"1px solid #e0ddd8",borderRadius:".6rem",padding:".8rem 1rem",cursor:"pointer",fontSize:".9rem",fontWeight:600,color:"#2c2a27",boxShadow:"0 1px 4px rgba(0,0,0,.08)"}},
+            // Logo Google SVG
+            h("svg",{width:20,height:20,viewBox:"0 0 24 24"},
+              h("path",{fill:"#4285F4",d:"M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"}),
+              h("path",{fill:"#34A853",d:"M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"}),
+              h("path",{fill:"#FBBC05",d:"M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"}),
+              h("path",{fill:"#EA4335",d:"M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"})
+            ),
+            "Entrar con Google"
+          ),
+      err&&h("p",{style:{margin:"1rem 0 0",color:"#b85c4a",fontSize:".8rem"}},err)
     )
   );
 }
 
 function Root() {
-  const [auth, setAuth] = useState(!!localStorage.getItem(AUTH_KEY));
-  function logout() { localStorage.removeItem(AUTH_KEY); setAuth(false); }
-  if (!auth) return h(LoginScreen, {onAuth:()=>setAuth(true)});
-  return h(App, {onLogout:logout});
+  const [auth, setAuth] = useState(false);
+  const [checking, setChecking] = useState(true);
+
+  useEffect(()=>{
+    // Comprobar token en URL (viene del redirect de Google)
+    const token = extractTokenFromUrl();
+    if (token) { setAuth(true); setChecking(false); return; }
+    // Comprobar sesión guardada
+    const saved = localStorage.getItem(AUTH_KEY);
+    if (!saved) { setChecking(false); return; }
+    sbAuth.getSession().then(u=>{
+      if (u && u.id) setAuth(true);
+      else localStorage.removeItem(AUTH_KEY);
+      setChecking(false);
+    }).catch(()=>setChecking(false));
+  },[]);
+
+  async function logout() {
+    await sbAuth.signOut();
+    setAuth(false);
+  }
+
+  if (checking) return h(Spinner,{text:"Cargando..."});
+  if (!auth) return h(LoginScreen,{onAuth:()=>setAuth(true)});
+  return h(App,{onLogout:logout});
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(h(Root,null));
