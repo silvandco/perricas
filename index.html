@@ -473,110 +473,150 @@ function App({onLogout}){
   );
 }
 
-// ── Vista Importar BBVA ───────────────────────────────────────────────────────
+// ── Vista Importar ────────────────────────────────────────────────────────────
 function VistaImportar({mCtas, mCats, mMovs, perfilActivo, onImport}) {
   const [filas, setFilas] = useState(null);
   const [analizando, setAnalizando] = useState(false);
   const [importando, setImportando] = useState(false);
   const [error, setError] = useState(null);
   const [cuentaSelId, setCuentaSelId] = useState(mCtas[0]?.id||"");
+  const [banco, setBanco] = useState("bbva");
 
-  async function cargarExcel(e) {
+  async function cargarArchivo(e) {
     const file = e.target.files[0];
     if (!file) return;
-    if (!cuentaSelId) { alert("Selecciona primero la cuenta a la que pertenece este extracto."); return; }
+    if (!cuentaSelId) { alert("Selecciona primero la cuenta."); return; }
     e.target.value = "";
     setError(null); setFilas(null); setAnalizando(true);
     try {
-      if (!window.XLSX) {
-        await new Promise((res,rej)=>{
-          const s=document.createElement("script");
-          s.src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js";
-          s.onload=res;s.onerror=rej;document.head.appendChild(s);
-        });
-      }
-      const buf = await file.arrayBuffer();
-      const wb = window.XLSX.read(buf,{type:"array"});
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const all = window.XLSX.utils.sheet_to_json(ws,{header:1,defval:null,raw:true});
+      if (banco === "bbva") await parseBBVA(file);
+      else await parseRevolut(file);
+    } catch(ex) { setError(ex.message); }
+    finally { setAnalizando(false); }
+  }
 
-      // Encontrar cabecera buscando "importe"
-      let hIdx = all.findIndex(r=>Array.isArray(r)&&r.some(c=>String(c||"").trim().toLowerCase()==="importe"));
-      if(hIdx<0) throw new Error("No se encontró la cabecera. Asegúrate de usar el Excel de 'Últimos movimientos' del BBVA.");
-      const hdr = all[hIdx].map(c=>String(c||"").trim().toLowerCase());
-
-      const iF   = hdr.findIndex(h=>h==="fecha");
-      const iC   = hdr.findIndex(h=>h==="concepto");
-      const iMov = hdr.findIndex(h=>h==="movimiento");
-      const iImp = hdr.findIndex(h=>h==="importe");
-      const iDis = hdr.findIndex(h=>h==="disponible");
-      const iObs = hdr.findIndex(h=>h==="observaciones");
-
-      const dataRows = all.slice(hIdx+1).filter(r=>{
-        if(!Array.isArray(r)) return false;
-        const v = r[iImp];
-        return v!==null && v!==undefined && v!=="" && !isNaN(Number(v));
+  // ── Parser BBVA (xlsx) ──────────────────────────────────────────────────────
+  async function parseBBVA(file) {
+    if (!window.XLSX) {
+      await new Promise((res,rej)=>{
+        const s=document.createElement("script");
+        s.src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js";
+        s.onload=res;s.onerror=rej;document.head.appendChild(s);
       });
+    }
+    const buf = await file.arrayBuffer();
+    const wb = window.XLSX.read(buf,{type:"array"});
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const all = window.XLSX.utils.sheet_to_json(ws,{header:1,defval:null,raw:true});
 
-      if(!dataRows.length) throw new Error("No se encontraron movimientos en el archivo.");
+    let hIdx = all.findIndex(r=>Array.isArray(r)&&r.some(c=>String(c||"").trim().toLowerCase()==="importe"));
+    if(hIdx<0) throw new Error("No se encontró la cabecera. ¿Es el Excel de 'Últimos movimientos' del BBVA?");
+    const hdr = all[hIdx].map(c=>String(c||"").trim().toLowerCase());
 
-      const saldoBBVA = iDis>=0&&dataRows[0]?Number(dataRows[0][iDis]):null;
+    const iF=hdr.findIndex(h=>h==="fecha"), iC=hdr.findIndex(h=>h==="concepto");
+    const iMov=hdr.findIndex(h=>h==="movimiento"), iImp=hdr.findIndex(h=>h==="importe");
+    const iObs=hdr.findIndex(h=>h==="observaciones");
 
-      // Duplicados: misma fecha + importe absoluto
-      const existentes = new Set(mMovs.map(m=>m.fecha+"_"+m.importe));
+    const dataRows=all.slice(hIdx+1).filter(r=>Array.isArray(r)&&r[iImp]!==null&&r[iImp]!==undefined&&r[iImp]!==""&&!isNaN(Number(r[iImp])));
+    if(!dataRows.length) throw new Error("No se encontraron movimientos.");
 
-      const parsed = dataRows.map((r,i)=>{
-        const rawFecha = String(r[iF]||"");
-        const concepto = String(r[iC]||"").trim();
-        const mov      = String(r[iMov]||"").trim();
-        const obs      = String(r[iObs]||"").trim();
-        const importe  = Number(r[iImp]);
+    const existentes=new Set(mMovs.map(m=>m.fecha+"_"+m.importe));
+    const parsed=dataRows.map((r,i)=>{
+      const rawFecha=String(r[iF]||"");
+      const concepto=String(r[iC]||"").trim();
+      const mov=String(r[iMov]||"").trim();
+      const obs=String(r[iObs]||"").trim();
+      const importe=Number(r[iImp]);
+      let fecha="";
+      const mf=rawFecha.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+      if(mf) fecha=mf[3]+"-"+mf[2].padStart(2,"0")+"-"+mf[1].padStart(2,"0");
+      else if(!isNaN(Number(rawFecha))&&Number(rawFecha)>1000){const d=new Date(Math.round((Number(rawFecha)-25569)*86400*1000));fecha=d.toISOString().slice(0,10);}
+      if(!fecha) return null;
+      const texto=(concepto+" "+mov+" "+obs).toLowerCase();
+      const esTransf=texto.includes("aporte")||texto.includes("traspaso")||(concepto.toLowerCase().includes("transferencia")&&(texto.includes("javier silva")||obs.toLowerCase().includes("aporte")));
+      let tipo=importe>=0?"ingreso":"gasto";
+      if(esTransf) tipo="transferencia";
+      const isDup=existentes.has(fecha+"_"+Math.abs(importe));
+      return {_id:"r"+i,fecha,concepto:obs||mov||concepto,textoParaCat:texto,importe:Math.abs(importe),tipo,cuentaId:cuentaSelId,cuentaDestId:"",catId:"",skip:isDup,dup:isDup,sugerencia:null};
+    }).filter(Boolean);
 
-        let fecha = "";
-        const mf = rawFecha.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-        if(mf) {
-          fecha = mf[3]+"-"+mf[2].padStart(2,"0")+"-"+mf[1].padStart(2,"0");
-        } else if(!isNaN(Number(rawFecha))&&Number(rawFecha)>1000) {
-          const d = new Date(Math.round((Number(rawFecha)-25569)*86400*1000));
-          fecha = d.toISOString().slice(0,10);
-        }
-        if(!fecha) return null;
+    await clasificarConIA(parsed);
+  }
 
-        const texto = (concepto+" "+mov+" "+obs).toLowerCase();
-        const esTransf = texto.includes("aporte")||texto.includes("traspaso")||(concepto.toLowerCase().includes("transferencia")&&(texto.includes("javier silva")||obs.toLowerCase().includes("aporte")));
+  // ── Parser Revolut (csv) ────────────────────────────────────────────────────
+  async function parseRevolut(file) {
+    const text = await file.text();
+    const lines = text.trim().split("\n");
+    const headers = lines[0].split(",").map(h=>h.trim().replace(/^"|"$/g,"").toLowerCase());
 
-        let tipo = importe>=0?"ingreso":"gasto";
-        if(esTransf) tipo="transferencia";
+    const iTipo = headers.findIndex(h=>h==="tipo");
+    const iDesc = headers.findIndex(h=>h.includes("descripci"));
+    const iImp  = headers.findIndex(h=>h==="importe");
+    const iFecha= headers.findIndex(h=>h.includes("fecha de inicio"));
+    const iState= headers.findIndex(h=>h==="state");
 
-        const clave = fecha+"_"+Math.abs(importe);
-        const isDup = existentes.has(clave);
+    const existentes=new Set(mMovs.map(m=>m.fecha+"_"+m.importe));
 
-        return {_id:"r"+i,fecha,concepto:obs||mov||concepto,textoParaCat:texto,importe:Math.abs(importe),tipo,cuentaId:cuentaSelId,cuentaDestId:"",catId:"",skip:isDup,dup:isDup,sugerencia:null};
-      }).filter(Boolean);
+    const parsed = lines.slice(1).map((line,i)=>{
+      // Parsear CSV respetando comillas
+      const cols = [];
+      let cur="", inQ=false;
+      for(const ch of line){if(ch==='"'){inQ=!inQ;}else if(ch===","&&!inQ){cols.push(cur.trim());cur="";}else{cur+=ch;}}
+      cols.push(cur.trim());
 
-      setFilas(parsed);
+      const state = (cols[iState]||"").trim().toUpperCase();
+      if(state!=="COMPLETADO") return null;
 
-      // Clasificar con IA
-      const paraClas=parsed.filter(r=>!r.skip&&r.tipo!=="transferencia");
-      if(paraClas.length>0){
-        const gastosCat=mCats.filter(c=>c.tipo==="gasto").map(c=>c.nombre).join(", ");
-        const ingresosCat=mCats.filter(c=>c.tipo==="ingreso").map(c=>c.nombre).join(", ");
-        const lineas=paraClas.map(r=>r._id+": "+r.textoParaCat).join("\n");
-        try{
-          const resp=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},
-            body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:800,
-              system:"Clasificador de movimientos bancarios espanoles. Devuelve el nombre EXACTO de la categoria de la lista o 'Sin categoria'. Responde SOLO JSON: {\"id\":\"categoria\"}",
-              messages:[{role:"user",content:"Categorias gasto: "+gastosCat+"\nCategorias ingreso: "+ingresosCat+"\n\nClasifica:\n"+lineas}]})});
-          if(resp.ok){
-            const data=await resp.json();
-            const text=data.content[0].text.replace(/```json|```/g,"").trim();
-            const sugs=JSON.parse(text);
-            setFilas(prev=>prev.map(r=>{const sug=sugs[r._id];const cat=mCats.find(c=>c.nombre===sug);return{...r,catId:cat?.id||"",sugerencia:cat?.nombre||null};}));
-          }
-        }catch(_){}
+      const rawTipo = (cols[iTipo]||"").trim();
+      const desc    = (cols[iDesc]||"").trim();
+      const rawImp  = parseFloat((cols[iImp]||"0").replace(",","."));
+      const rawFecha= (cols[iFecha]||"").trim();
+
+      // Fecha: "2026-05-31 15:46:46" → "2026-05-31"
+      const fecha = rawFecha.slice(0,10);
+      if(!fecha||fecha.length<10) return null;
+
+      const texto=(rawTipo+" "+desc).toLowerCase();
+
+      // Detectar tipo
+      let tipo;
+      if(rawTipo==="Pago con tarjeta") tipo="gasto";
+      else if(rawTipo==="Recargas"||rawTipo==="Intereses") tipo="ingreso";
+      else if(rawTipo==="Transferir"){
+        // "Desde EUR Cuenta Remunerada" = transferencia interna
+        if(texto.includes("desde eur")||texto.includes("cuenta remunerada")||texto.includes("to javier")||texto.includes("javier silva")) tipo="transferencia";
+        else tipo = rawImp>=0?"ingreso":"gasto";
+      } else tipo = rawImp>=0?"ingreso":"gasto";
+
+      const importe=Math.abs(rawImp);
+      const isDup=existentes.has(fecha+"_"+importe);
+
+      return {_id:"v"+i,fecha,concepto:desc,textoParaCat:texto,importe,tipo,cuentaId:cuentaSelId,cuentaDestId:"",catId:"",skip:isDup,dup:isDup,sugerencia:null};
+    }).filter(Boolean);
+
+    await clasificarConIA(parsed);
+  }
+
+  // ── Clasificación IA ────────────────────────────────────────────────────────
+  async function clasificarConIA(parsed) {
+    setFilas(parsed);
+    const paraClas=parsed.filter(r=>!r.skip&&r.tipo!=="transferencia");
+    if(!paraClas.length) return;
+    const gastosCat=mCats.filter(c=>c.tipo==="gasto").map(c=>c.nombre).join(", ");
+    const ingresosCat=mCats.filter(c=>c.tipo==="ingreso").map(c=>c.nombre).join(", ");
+    const lineas=paraClas.map(r=>r._id+": "+r.textoParaCat).join("\n");
+    try{
+      const resp=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:800,
+          system:"Clasificador de movimientos bancarios espanoles. Devuelve el nombre EXACTO de la categoria de la lista o 'Sin categoria'. Responde SOLO JSON: {\"id\":\"categoria\"}",
+          messages:[{role:"user",content:"Categorias gasto: "+gastosCat+"\nCategorias ingreso: "+ingresosCat+"\n\nClasifica:\n"+lineas}]})});
+      if(resp.ok){
+        const data=await resp.json();
+        const text=data.content[0].text.replace(/```json|```/g,"").trim();
+        const sugs=JSON.parse(text);
+        setFilas(prev=>prev.map(r=>{const sug=sugs[r._id];const cat=mCats.find(c=>c.nombre===sug);return{...r,catId:cat?.id||"",sugerencia:cat?.nombre||null};}));
       }
-    }catch(ex){setError(ex.message);}
-    finally{setAnalizando(false);}
+    }catch(_){}
   }
 
   function updateFila(id,key,val){setFilas(prev=>prev.map(r=>r._id===id?{...r,[key]:val}:r));}
@@ -587,10 +627,11 @@ function VistaImportar({mCtas, mCats, mMovs, perfilActivo, onImport}) {
     setImportando(true);
     try{
       const movs=toImport.map(r=>({
-        id:"bbva_"+r._id+"_"+Date.now()+"_"+Math.random().toString(36).slice(2),
+        id:"imp_"+r._id+"_"+Date.now()+"_"+Math.random().toString(36).slice(2),
         perfil_id:perfilActivo,tipo:r.tipo,fecha:r.fecha,
         importe:parseFloat(r.importe),concepto:r.concepto||null,
-        cuenta_id:r.cuentaId,categoria_id:r.catId||null,cuenta_dest_id:r.tipo==="transferencia"?(r.cuentaDestId||null):null,
+        cuenta_id:r.cuentaId,categoria_id:r.catId||null,
+        cuenta_dest_id:r.tipo==="transferencia"?(r.cuentaDestId||null):null,
       }));
       await onImport(movs);
     }catch(ex){alert("Error: "+ex.message);setImportando(false);}
@@ -598,42 +639,59 @@ function VistaImportar({mCtas, mCats, mMovs, perfilActivo, onImport}) {
 
   const pendientes=filas?filas.filter(r=>!r.skip).length:0;
   const duplicados=filas?filas.filter(r=>r.dup).length:0;
+  const aceptar=banco==="bbva"?".xlsx,.xls":".csv";
 
   return h("div",null,
     h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"1rem"}},
-      h("h2",{style:{margin:0,fontSize:"1rem",fontWeight:600}},"⬆ Importar movimientos BBVA"),
+      h("h2",{style:{margin:0,fontSize:"1rem",fontWeight:600}},"⬆ Importar movimientos"),
       filas&&pendientes>0&&h(Btn,{onClick:confirmarImport,disabled:importando},importando?"Importando...":"Importar "+pendientes+" movimientos")
     ),
+
     !filas&&h(Card,{style:{padding:"2rem"}},
       h("div",{style:{fontSize:"2rem",textAlign:"center",marginBottom:"1rem"}},"📄"),
-      h("p",{style:{color:C.tm,fontSize:".9rem",margin:"0 0 1.5rem",textAlign:"center"}},"Sube el Excel de últimos movimientos del BBVA"),
-      h(Field,{label:"1. ¿A qué cuenta pertenece este extracto?"},
-        h("select",{value:cuentaSelId,onChange:e=>setCuentaSelId(e.target.value),style:IS},
-          h("option",{value:""},"— Selecciona una cuenta —"),
-          ...mCtas.map(c=>h("option",{key:c.id,value:c.id},c.icono||"",c.nombre," (",c.tipo,")"))
+
+      // Selector banco
+      h(Field,{label:"1. ¿De qué banco es el fichero?"},
+        h("div",{style:{display:"flex",gap:".5rem"}},
+          ...[["bbva","🏦 BBVA (.xlsx)"],["revolut","💳 Revolut (.csv)"]].map(([v,l])=>
+            h("button",{key:v,onClick:()=>setBanco(v),style:{flex:1,padding:".5rem",borderRadius:".5rem",cursor:"pointer",fontWeight:600,fontSize:".82rem",
+              background:banco===v?C.accentBg:C.sa,color:banco===v?C.ac:C.tm,border:"1px solid "+(banco===v?C.ac:C.bd)}},l)
+          )
         )
       ),
-      h("div",{style:{marginTop:".5rem"}},
-        h("label",{style:{display:"block",color:C.tm,fontSize:".775rem",marginBottom:".35rem",fontWeight:500}},"2. Selecciona el archivo Excel"),
+
+      // Selector cuenta
+      h(Field,{label:"2. ¿A qué cuenta pertenece este extracto?"},
+        h("select",{value:cuentaSelId,onChange:e=>setCuentaSelId(e.target.value),style:IS},
+          h("option",{value:""},"— Selecciona una cuenta —"),
+          ...mCtas.map(c=>h("option",{key:c.id,value:c.id},c.nombre," (",c.tipo,")"))
+        )
+      ),
+
+      // Botón archivo
+      h("div",null,
+        h("label",{style:{display:"block",color:C.tm,fontSize:".775rem",marginBottom:".35rem",fontWeight:500}},"3. Selecciona el archivo"),
         analizando
           ?h("div",{style:{display:"flex",alignItems:"center",gap:".75rem",color:C.tm,padding:".5rem 0"}},
               h("div",{style:{width:24,height:24,border:"3px solid "+C.bd,borderTopColor:C.ac,borderRadius:"50%",animation:"spin .8s linear infinite"}}),
               h("span",{style:{fontSize:".875rem"}},"Analizando y clasificando con IA..."))
-          :h("label",{style:{display:"inline-block",background:cuentaSelId?C.ac:C.sa,color:cuentaSelId?"#fff":C.ts,borderRadius:".5rem",padding:".6rem 1.25rem",cursor:cuentaSelId?"pointer":"default",fontWeight:600,fontSize:".875rem",transition:"background .15s"}},
-              "Seleccionar archivo .xlsx",
-              h("input",{type:"file",accept:".xlsx,.xls",onChange:cargarExcel,disabled:!cuentaSelId,style:{display:"none"}}))
+          :h("label",{style:{display:"inline-block",background:cuentaSelId?C.ac:C.sa,color:cuentaSelId?"#fff":C.ts,borderRadius:".5rem",padding:".6rem 1.25rem",cursor:cuentaSelId?"pointer":"default",fontWeight:600,fontSize:".875rem"}},
+              "Seleccionar "+(banco==="bbva"?"archivo .xlsx":"archivo .csv"),
+              h("input",{type:"file",accept:aceptar,onChange:cargarArchivo,disabled:!cuentaSelId,style:{display:"none"}}))
       )
     ),
+
     error&&h(Card,{style:{background:C.rb,border:"1px solid "+C.rd+"44",marginBottom:"1rem"}},h("p",{style:{margin:0,color:C.rd,fontSize:".875rem"}},error)),
+
     filas&&!analizando&&h("div",null,
       h(Card,{style:{marginBottom:"1rem",padding:".75rem 1rem"}},
         h("div",{style:{display:"flex",gap:"1rem",flexWrap:"wrap",alignItems:"center"}},
           h("span",{style:{color:C.gn,fontWeight:600,fontSize:".82rem"}},"✓ "+pendientes+" nuevos a importar"),
           duplicados>0&&h("span",{style:{color:C.ts,fontSize:".82rem"}},duplicados+" duplicados omitidos"),
           h("div",{style:{display:"flex",gap:".5rem",marginLeft:"auto"}},
-            h("button",{onClick:()=>setFilas(prev=>prev.map(r=>({...r,skip:false}))),style:{background:"none",border:`1px solid ${C.bd}`,borderRadius:".4rem",color:C.tm,cursor:"pointer",fontSize:".78rem",padding:".25rem .6rem"}},"✓ Todos"),
-            h("button",{onClick:()=>setFilas(prev=>prev.map(r=>({...r,skip:true}))),style:{background:"none",border:`1px solid ${C.bd}`,borderRadius:".4rem",color:C.tm,cursor:"pointer",fontSize:".78rem",padding:".25rem .6rem"}},"✗ Ninguno"),
-            h("button",{onClick:()=>{setFilas(null);},style:{background:"none",border:"none",color:C.tm,cursor:"pointer",fontSize:".8rem"}},"← Cargar otro archivo")
+            h("button",{onClick:()=>setFilas(prev=>prev.map(r=>({...r,skip:false}))),style:{background:"none",border:"1px solid "+C.bd,borderRadius:".4rem",color:C.tm,cursor:"pointer",fontSize:".78rem",padding:".25rem .6rem"}},"✓ Todos"),
+            h("button",{onClick:()=>setFilas(prev=>prev.map(r=>({...r,skip:true}))),style:{background:"none",border:"1px solid "+C.bd,borderRadius:".4rem",color:C.tm,cursor:"pointer",fontSize:".78rem",padding:".25rem .6rem"}},"✗ Ninguno"),
+            h("button",{onClick:()=>setFilas(null),style:{background:"none",border:"none",color:C.tm,cursor:"pointer",fontSize:".8rem"}},"← Cargar otro")
           )
         )
       ),
@@ -656,7 +714,7 @@ function VistaImportar({mCtas, mCats, mMovs, perfilActivo, onImport}) {
               ...mCats.filter(c=>c.tipo===r.tipo).map(c=>h("option",{key:c.id,value:c.id},c.icono+" "+c.nombre))
             ),
             r.tipo==="transferencia"
-              ? h(Fragment,null,
+              ?h(Fragment,null,
                   h("select",{value:r.cuentaId,onChange:e=>updateFila(r._id,"cuentaId",e.target.value),disabled:r.skip,
                     style:{...IS,width:"auto",padding:".28rem .45rem",fontSize:".77rem"}},
                     ...mCtas.map(c=>h("option",{key:c.id,value:c.id},"↑ "+c.nombre))
@@ -668,7 +726,7 @@ function VistaImportar({mCtas, mCats, mMovs, perfilActivo, onImport}) {
                     ...mCtas.filter(c=>c.id!==r.cuentaId).map(c=>h("option",{key:c.id,value:c.id},"↓ "+c.nombre))
                   )
                 )
-              : h("select",{value:r.cuentaId,onChange:e=>updateFila(r._id,"cuentaId",e.target.value),disabled:r.skip,
+              :h("select",{value:r.cuentaId,onChange:e=>updateFila(r._id,"cuentaId",e.target.value),disabled:r.skip,
                   style:{...IS,width:"auto",padding:".28rem .45rem",fontSize:".77rem"}},
                   ...mCtas.map(c=>h("option",{key:c.id,value:c.id},c.nombre))
                 ),
