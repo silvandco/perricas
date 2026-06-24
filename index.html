@@ -885,6 +885,7 @@ function ProfModal({profs,activo,onCambiar,onAdd,onDel,onClose}){
 
 // ── Auth Google via Supabase ──────────────────────────────────────────────────
 const AUTH_KEY = "perricas_auth";
+const EMAILS_AUTORIZADOS = ["beatrizbeasac@gmail.com", "silva.and.co@gmail.com"];
 
 // Cliente Supabase Auth (usando la misma URL y KEY ya definidas)
 const sbAuth = {
@@ -980,28 +981,62 @@ function LoginScreen({onAuth}) {
 function Root() {
   const [auth, setAuth] = useState(false);
   const [checking, setChecking] = useState(true);
+  const [noAutorizado, setNoAutorizado] = useState(false);
 
-  useEffect(()=>{
-    // Comprobar token en URL (viene del redirect de Google)
-    const token = extractTokenFromUrl();
-    if (token) { setAuth(true); setChecking(false); return; }
-    // Comprobar sesión guardada
+  async function verificar() {
     const saved = localStorage.getItem(AUTH_KEY);
     if (!saved) { setChecking(false); return; }
-    sbAuth.getSession().then(u=>{
-      if (u && u.id) setAuth(true);
-      else localStorage.removeItem(AUTH_KEY);
-      setChecking(false);
-    }).catch(()=>setChecking(false));
+    try {
+      const u = await sbAuth.getSession();
+      if (u && u.email) {
+        // Comprobar si el email está autorizado
+        // El propio dueño (cualquier email del mismo proyecto Supabase) está siempre autorizado
+        // Solo bloqueamos emails que NO están en la lista blanca
+        if (EMAILS_AUTORIZADOS.length > 0 && !EMAILS_AUTORIZADOS.includes(u.email)) {
+          // Email no autorizado
+          await sbAuth.signOut();
+          setNoAutorizado(true);
+          setChecking(false);
+          return;
+        }
+        setAuth(true);
+      } else {
+        localStorage.removeItem(AUTH_KEY);
+      }
+    } catch(_) {
+      localStorage.removeItem(AUTH_KEY);
+    }
+    setChecking(false);
+  }
+
+  useEffect(()=>{
+    const token = extractTokenFromUrl();
+    if (token) {
+      // Verificar el token recién obtenido
+      verificar();
+      return;
+    }
+    verificar();
   },[]);
 
   async function logout() {
     await sbAuth.signOut();
     setAuth(false);
+    setNoAutorizado(false);
   }
 
   if (checking) return h(Spinner,{text:"Cargando..."});
-  if (!auth) return h(LoginScreen,{onAuth:()=>setAuth(true)});
+
+  if (noAutorizado) return h("div",{style:{minHeight:"100vh",background:"#f4f3f0",display:"flex",alignItems:"center",justifyContent:"center",padding:"1rem"}},
+    h("div",{style:{background:"#faf9f7",borderRadius:"1rem",padding:"2.5rem 2rem",width:"100%",maxWidth:360,boxShadow:"0 8px 40px rgba(44,42,39,.12)",border:"1px solid #e0ddd8",textAlign:"center"}},
+      h("div",{style:{fontSize:"2rem",marginBottom:"1rem"}},"🔒"),
+      h("h2",{style:{margin:"0 0 .5rem",color:"#2c2a27",fontSize:"1.1rem",fontWeight:600}},"Acceso no autorizado"),
+      h("p",{style:{color:"#6b6760",fontSize:".85rem",margin:"0 0 1.5rem",lineHeight:1.6}},"Esta aplicación es privada. Solo pueden acceder las cuentas autorizadas."),
+      h("button",{onClick:logout,style:{background:"#7c6f5e",color:"#fff",border:"none",borderRadius:".5rem",padding:".6rem 1.25rem",cursor:"pointer",fontWeight:600,fontSize:".875rem"}},"Volver al inicio")
+    )
+  );
+
+  if (!auth) return h(LoginScreen,{onAuth:()=>{ verificar(); }});
   return h(App,{onLogout:logout});
 }
 
