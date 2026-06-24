@@ -46,19 +46,30 @@ const {useState,useEffect,useMemo,useRef,useCallback,createElement:h,Fragment}=R
 // ── Supabase ──────────────────────────────────────────────────────────────────
 const SB_URL="https://tknbxtdwrvkzwqrtasim.supabase.co";
 const SB_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRrbmJ4dGR3cnZrendxcnRhc2ltIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE5MTc3MzcsImV4cCI6MjA5NzQ5MzczN30.8m2Ov1_XnL5-eui1qZiIU78QsTZEa5oDZzvqDhrjtV8";
-const HDR={apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`};
+
+// Siempre usa el token de sesión si existe, si no la clave anon
+function getHdr() {
+  const token = localStorage.getItem("perricas_auth");
+  const auth = token ? "Bearer "+token : "Bearer "+SB_KEY;
+  return {apikey:SB_KEY, Authorization:auth, "Content-Type":"application/json"};
+}
+
 const sb={
   async get(t,f={}){
-    let u=`${SB_URL}/rest/v1/${t}?select=*`;
-    for(const[k,v]of Object.entries(f))u+=`&${k}=eq.${encodeURIComponent(v)}`;
-    const r=await fetch(u,{headers:HDR});if(!r.ok)throw new Error(await r.text());return r.json();
+    let u=SB_URL+"/rest/v1/"+t+"?select=*";
+    for(const[k,v]of Object.entries(f))u+="&"+k+"=eq."+encodeURIComponent(v);
+    const r=await fetch(u,{headers:getHdr()});if(!r.ok)throw new Error(await r.text());return r.json();
   },
   async upsert(t,rows){
-    const r=await fetch(`${SB_URL}/rest/v1/${t}`,{method:"POST",headers:{...HDR,"Content-Type":"application/json",Prefer:"resolution=merge-duplicates"},body:JSON.stringify(Array.isArray(rows)?rows:[rows])});
+    const r=await fetch(SB_URL+"/rest/v1/"+t,{method:"POST",headers:{...getHdr(),Prefer:"resolution=merge-duplicates"},body:JSON.stringify(Array.isArray(rows)?rows:[rows])});
     if(!r.ok)throw new Error(await r.text());
   },
   async del(t,id){
-    const r=await fetch(`${SB_URL}/rest/v1/${t}?id=eq.${id}`,{method:"DELETE",headers:HDR});
+    const r=await fetch(SB_URL+"/rest/v1/"+t+"?id=eq."+id,{method:"DELETE",headers:getHdr()});
+    if(!r.ok)throw new Error(await r.text());
+  },
+  async patch(t,id,data){
+    const r=await fetch(SB_URL+"/rest/v1/"+t+"?id=eq."+id,{method:"PATCH",headers:{...getHdr(),Prefer:"return=representation"},body:JSON.stringify(data)});
     if(!r.ok)throw new Error(await r.text());
   }
 };
@@ -891,7 +902,7 @@ const EMAILS_AUTORIZADOS = ["beatrizbeasac@gmail.com", "silva.and.co@gmail.com"]
 const sbAuth = {
   async getSession() {
     const r = await fetch(SB_URL+"/auth/v1/user", {
-      headers:{apikey:SB_KEY, Authorization:"Bearer "+(localStorage.getItem(AUTH_KEY)||"")}
+      headers:{apikey:SB_KEY, Authorization:"Bearer "+(localStorage.getItem("perricas_auth")||"")}
     });
     if (!r.ok) return null;
     return r.json();
