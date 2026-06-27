@@ -615,7 +615,7 @@ function VistaImportar({mCtas, mCats, mMovs, saldos, perfilActivo, onImport}) {
     const ingresosCat=mCats.filter(c=>c.tipo==="ingreso").map(c=>c.nombre).join(", ");
     const lineas=paraClas.map(r=>r._id+": "+r.textoParaCat).join("\n");
     try{
-      const resp=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},
+      const resp=await fetch("https://perricas.silva-and-co.workers.dev",{method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:800,
           system:"Clasificador de movimientos bancarios espanoles. Devuelve el nombre EXACTO de la categoria de la lista o 'Sin categoria'. Responde SOLO JSON: {\"id\":\"categoria\"}",
           messages:[{role:"user",content:"Categorias gasto: "+gastosCat+"\nCategorias ingreso: "+ingresosCat+"\n\nClasifica:\n"+lineas}]})});
@@ -854,7 +854,7 @@ function VistaInforme({mMovs, mCats, mCtas, prof}) {
 
       var resumen = lineas.join("\n");
 
-      var resp = await fetch("https://api.anthropic.com/v1/messages", {
+      var resp = await fetch("https://perricas.silva-and-co.workers.dev", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
