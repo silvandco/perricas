@@ -43,46 +43,22 @@
 'use strict';
 const {useState,useEffect,useMemo,useRef,useCallback,createElement:h,Fragment}=React;
 
-// Extraer token del hash de la URL INMEDIATAMENTE al cargar la página
-// Debe hacerse antes de que React arranque para que getHdr() ya tenga el token
-(function extractTokenEarly(){
-  const hash = window.location.hash;
-  if (!hash) return;
-  const params = new URLSearchParams(hash.slice(1));
-  const token = params.get("access_token");
-  if (token) {
-    localStorage.setItem("perricas_auth", token);
-    history.replaceState(null, "", window.location.pathname);
-  }
-})();
-
 // ── Supabase ──────────────────────────────────────────────────────────────────
 const SB_URL="https://tknbxtdwrvkzwqrtasim.supabase.co";
 const SB_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRrbmJ4dGR3cnZrendxcnRhc2ltIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE5MTc3MzcsImV4cCI6MjA5NzQ5MzczN30.8m2Ov1_XnL5-eui1qZiIU78QsTZEa5oDZzvqDhrjtV8";
-
-// Siempre usa el token de sesión si existe, si no la clave anon
-function getHdr() {
-  const token = localStorage.getItem("perricas_auth");
-  const auth = token ? "Bearer "+token : "Bearer "+SB_KEY;
-  return {apikey:SB_KEY, Authorization:auth, "Content-Type":"application/json"};
-}
-
+const HDR={apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`};
 const sb={
   async get(t,f={}){
-    let u=SB_URL+"/rest/v1/"+t+"?select=*";
-    for(const[k,v]of Object.entries(f))u+="&"+k+"=eq."+encodeURIComponent(v);
-    const r=await fetch(u,{headers:getHdr()});if(!r.ok)throw new Error(await r.text());return r.json();
+    let u=`${SB_URL}/rest/v1/${t}?select=*`;
+    for(const[k,v]of Object.entries(f))u+=`&${k}=eq.${encodeURIComponent(v)}`;
+    const r=await fetch(u,{headers:HDR});if(!r.ok)throw new Error(await r.text());return r.json();
   },
   async upsert(t,rows){
-    const r=await fetch(SB_URL+"/rest/v1/"+t,{method:"POST",headers:{...getHdr(),Prefer:"resolution=merge-duplicates"},body:JSON.stringify(Array.isArray(rows)?rows:[rows])});
+    const r=await fetch(`${SB_URL}/rest/v1/${t}`,{method:"POST",headers:{...HDR,"Content-Type":"application/json",Prefer:"resolution=merge-duplicates"},body:JSON.stringify(Array.isArray(rows)?rows:[rows])});
     if(!r.ok)throw new Error(await r.text());
   },
   async del(t,id){
-    const r=await fetch(SB_URL+"/rest/v1/"+t+"?id=eq."+id,{method:"DELETE",headers:getHdr()});
-    if(!r.ok)throw new Error(await r.text());
-  },
-  async patch(t,id,data){
-    const r=await fetch(SB_URL+"/rest/v1/"+t+"?id=eq."+id,{method:"PATCH",headers:{...getHdr(),Prefer:"return=representation"},body:JSON.stringify(data)});
+    const r=await fetch(`${SB_URL}/rest/v1/${t}?id=eq.${id}`,{method:"DELETE",headers:HDR});
     if(!r.ok)throw new Error(await r.text());
   }
 };
@@ -190,7 +166,6 @@ function App({onLogout}){
   const[vista,setVista]=useState("dashboard");
   const[modal,setModal]=useState(null);
   const[ctaEditar,setCtaEditar]=useState(null);
-  const[movEditar,setMovEditar]=useState(null);
   const[fil,setFil]=useState({mes:tod().slice(0,7),cuenta:"",cat:""});
 
   const reload=useCallback(async()=>{
@@ -255,12 +230,6 @@ function App({onLogout}){
 
   async function addMov(f){const m={id:uid(),perfil_id:pa,tipo:f.tipo,fecha:f.fecha,importe:parseFloat(f.importe),concepto:f.concepto||null,cuenta_id:f.cuentaId,categoria_id:f.catId||null,cuenta_dest_id:f.cuentaDestId||null};await sb.upsert("movimientos",m);setMovs(ms=>[...ms,m]);setModal(null);}
   async function delMov(id){if(!confirm("¿Eliminar?"))return;await sb.del("movimientos",id);setMovs(ms=>ms.filter(m=>m.id!==id));}
-  async function editMov(id,form){
-    const mov={id,perfil_id:pa,tipo:form.tipo,fecha:form.fecha,importe:parseFloat(form.importe),concepto:form.concepto||null,cuenta_id:form.cuentaId,categoria_id:form.catId||null,cuenta_dest_id:form.tipo==="transferencia"?(form.cuentaDestId||null):null};
-    await sb.upsert("movimientos",mov);
-    setMovs(ms=>ms.map(m=>m.id===id?mov:m));
-    setMovEditar(null);setModal(null);
-  }
   async function addCta(f){const c={id:uid(),perfil_id:pa,nombre:f.nombre,tipo:f.tipo,color:f.color,saldo_inicial:parseFloat(f.si||0)};await sb.upsert("cuentas",c);setCtas(cs=>[...cs,c]);setModal(null);}
   async function editCta(id,f){const c={id,perfil_id:pa,nombre:f.nombre,tipo:f.tipo,color:f.color,saldo_inicial:parseFloat(f.si||0)};await sb.upsert("cuentas",c);setCtas(cs=>cs.map(x=>x.id===id?c:x));setCtaEditar(null);setModal(null);}
   async function delCta(id){if(mMovs.some(m=>m.cuenta_id===id||m.cuenta_dest_id===id)){alert("Tiene movimientos.");return;}if(!confirm("¿Eliminar cuenta?"))return;await sb.del("cuentas",id);setCtas(cs=>cs.filter(c=>c.id!==id));}
@@ -394,10 +363,7 @@ function App({onLogout}){
       vista==="movimientos"&&h("div",null,
         h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"1rem"}},
           h("h2",{style:{margin:0,fontSize:"1rem",fontWeight:600}},"Movimientos"),
-          h("div",{style:{display:"flex",gap:".5rem"}},
-            h(Btn,{small:true,variant:"ghost",onClick:()=>setVista("importar")},"⬆ Importar"),
-            h(Btn,{onClick:()=>setModal("movimiento")},"＋ Añadir")
-          )
+          h(Btn,{onClick:()=>setModal("movimiento")},"＋ Añadir")
         ),
         h(Card,{style:{marginBottom:".75rem"}},
           h("div",{className:"gfi"},
@@ -425,8 +391,7 @@ function App({onLogout}){
               h("p",{style:{margin:".1rem 0 0",color:C.ts,fontSize:".72rem"}},fmtD(m.fecha)," · ",cta?.nombre,ctaD&&[" → ",ctaD.nombre],!isT&&cat&&[" · ",cat.nombre])
             ),
             h("span",{style:{fontWeight:700,fontSize:".9rem",color:col,flexShrink:0,fontFamily:"'Inter',system-ui,sans-serif"}},isI?"+":isT?"":"-",fmt(m.importe)),
-            h("button",{onClick:()=>{setMovEditar(m);setModal("editmov");},title:"Editar",style:{background:"none",border:"none",color:C.tm,cursor:"pointer",fontSize:".85rem",padding:".2rem",flexShrink:0,opacity:.6}},"✏️"),
-            h("button",{onClick:()=>delMov(m.id),title:"Eliminar",style:{background:"none",border:"none",color:C.ts,cursor:"pointer",fontSize:".85rem",padding:".2rem",flexShrink:0,opacity:.6}},"✕")
+            h("button",{onClick:()=>delMov(m.id),style:{background:"none",border:"none",color:C.ts,cursor:"pointer",fontSize:".85rem",padding:".2rem",flexShrink:0,opacity:.6}},"✕")
           );
         }))
       ),
@@ -465,330 +430,14 @@ function App({onLogout}){
         ))
       ),
 
-      vista==="importar"&&h(VistaImportar,{mCtas,mCats,mMovs,saldos,perfilActivo:pa,onImport:async(movs)=>{
-        for(const m of movs){await sb.upsert("movimientos",m);}
-        setMovs(ms=>[...ms,...movs]);
-        setVista("movimientos");
-      }}),
       vista==="informe"&&h(VistaInforme,{mMovs,mCats,mCtas,prof})
     ),
 
     modal==="movimiento"&&h(MovModal,{ctas:mCtas,cats:mCats,movs:mMovs,onSave:addMov,onClose:()=>setModal(null)}),
-    modal==="editmov"&&movEditar&&h(MovModal,{ctas:mCtas,cats:mCats,movs:mMovs,mov:movEditar,onSave:f=>editMov(movEditar.id,f),onClose:()=>{setModal(null);setMovEditar(null);}}),
     modal==="cuenta"&&h(CtaModal,{onSave:addCta,onClose:()=>setModal(null)}),
     modal==="editcuenta"&&ctaEditar&&h(CtaModal,{cta:ctaEditar,onSave:f=>editCta(ctaEditar.id,f),onClose:()=>{setModal(null);setCtaEditar(null);}}),
     modal==="categoria"&&h(CatModal,{onSave:addCat,onClose:()=>setModal(null)}),
     modal==="perfil"&&h(ProfModal,{profs,activo:pa,onCambiar:id=>{setPa(id);setModal(null);},onAdd:addProf,onDel:delProf,onClose:()=>setModal(null)})
-  );
-}
-
-// ── Vista Importar ────────────────────────────────────────────────────────────
-function VistaImportar({mCtas, mCats, mMovs, saldos, perfilActivo, onImport}) {
-  const [filas, setFilas] = useState(null);
-  const [analizando, setAnalizando] = useState(false);
-  const [importando, setImportando] = useState(false);
-  const [error, setError] = useState(null);
-  const [cuentaSelId, setCuentaSelId] = useState(mCtas[0]?.id||"");
-  const [banco, setBanco] = useState("bbva");
-
-  async function cargarArchivo(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    if (!cuentaSelId) { alert("Selecciona primero la cuenta."); return; }
-    e.target.value = "";
-    setError(null); setFilas(null); setAnalizando(true);
-    try {
-      if (banco === "bbva") await parseBBVA(file);
-      else await parseRevolut(file);
-    } catch(ex) { setError(ex.message); }
-    finally { setAnalizando(false); }
-  }
-
-  // ── Parser BBVA (xlsx) ──────────────────────────────────────────────────────
-  async function parseBBVA(file) {
-    if (!window.XLSX) {
-      await new Promise((res,rej)=>{
-        const s=document.createElement("script");
-        s.src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js";
-        s.onload=res;s.onerror=rej;document.head.appendChild(s);
-      });
-    }
-    const buf = await file.arrayBuffer();
-    const wb = window.XLSX.read(buf,{type:"array"});
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    const all = window.XLSX.utils.sheet_to_json(ws,{header:1,defval:null,raw:true});
-
-    let hIdx = all.findIndex(r=>Array.isArray(r)&&r.some(c=>String(c||"").trim().toLowerCase()==="importe"));
-    if(hIdx<0) throw new Error("No se encontró la cabecera. ¿Es el Excel de 'Últimos movimientos' del BBVA?");
-    const hdr = all[hIdx].map(c=>String(c||"").trim().toLowerCase());
-
-    const iF=hdr.findIndex(h=>h==="fecha"), iC=hdr.findIndex(h=>h==="concepto");
-    const iMov=hdr.findIndex(h=>h==="movimiento"), iImp=hdr.findIndex(h=>h==="importe");
-    const iObs=hdr.findIndex(h=>h==="observaciones");
-
-    const dataRows=all.slice(hIdx+1).filter(r=>Array.isArray(r)&&r[iImp]!==null&&r[iImp]!==undefined&&r[iImp]!==""&&!isNaN(Number(r[iImp])));
-    if(!dataRows.length) throw new Error("No se encontraron movimientos.");
-
-    const existentes=new Set(mMovs.map(m=>m.fecha+"_"+m.importe));
-    const parsed=dataRows.map((r,i)=>{
-      const rawFecha=String(r[iF]||"");
-      const concepto=String(r[iC]||"").trim();
-      const mov=String(r[iMov]||"").trim();
-      const obs=String(r[iObs]||"").trim();
-      const importe=Number(r[iImp]);
-      let fecha="";
-      const mf=rawFecha.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-      if(mf) fecha=mf[3]+"-"+mf[2].padStart(2,"0")+"-"+mf[1].padStart(2,"0");
-      else if(!isNaN(Number(rawFecha))&&Number(rawFecha)>1000){const d=new Date(Math.round((Number(rawFecha)-25569)*86400*1000));fecha=d.toISOString().slice(0,10);}
-      if(!fecha) return null;
-      const texto=(concepto+" "+mov+" "+obs).toLowerCase();
-      const esTransf=texto.includes("aporte")||texto.includes("traspaso")||(concepto.toLowerCase().includes("transferencia")&&(texto.includes("javier silva")||obs.toLowerCase().includes("aporte")));
-      let tipo=importe>=0?"ingreso":"gasto";
-      if(esTransf) tipo="transferencia";
-      const isDup=existentes.has(fecha+"_"+Math.abs(importe));
-      return {_id:"r"+i,fecha,concepto:obs||mov||concepto,textoParaCat:texto,importe:Math.abs(importe),tipo,cuentaId:cuentaSelId,cuentaDestId:"",catId:"",skip:isDup,dup:isDup,sugerencia:null};
-    }).filter(Boolean);
-
-    await clasificarConIA(parsed);
-  }
-
-  // ── Parser Revolut (csv) ────────────────────────────────────────────────────
-  async function parseRevolut(file) {
-    const text = await file.text();
-    const lines = text.trim().split("\n");
-    const headers = lines[0].split(",").map(h=>h.trim().replace(/^"|"$/g,"").toLowerCase());
-
-    const iTipo = headers.findIndex(h=>h==="tipo");
-    const iDesc = headers.findIndex(h=>h.includes("descripci"));
-    const iImp  = headers.findIndex(h=>h==="importe");
-    const iFecha= headers.findIndex(h=>h.includes("fecha de inicio"));
-    const iState= headers.findIndex(h=>h==="state");
-
-    const existentes=new Set(mMovs.map(m=>m.fecha+"_"+m.importe));
-
-    const parsed = lines.slice(1).map((line,i)=>{
-      // Parsear CSV respetando comillas
-      const cols = [];
-      let cur="", inQ=false;
-      for(const ch of line){if(ch==='"'){inQ=!inQ;}else if(ch===","&&!inQ){cols.push(cur.trim());cur="";}else{cur+=ch;}}
-      cols.push(cur.trim());
-
-      const state = (cols[iState]||"").trim().toUpperCase();
-      if(state!=="COMPLETADO") return null;
-
-      const rawTipo = (cols[iTipo]||"").trim();
-      const desc    = (cols[iDesc]||"").trim();
-      const rawImp  = parseFloat((cols[iImp]||"0").replace(",","."));
-      const rawFecha= (cols[iFecha]||"").trim();
-
-      // Fecha: "2026-05-31 15:46:46" → "2026-05-31"
-      const fecha = rawFecha.slice(0,10);
-      if(!fecha||fecha.length<10) return null;
-
-      const texto=(rawTipo+" "+desc).toLowerCase();
-
-      // Detectar tipo
-      let tipo;
-      if(rawTipo==="Pago con tarjeta") tipo="gasto";
-      else if(rawTipo==="Recargas"||rawTipo==="Intereses") tipo="ingreso";
-      else if(rawTipo==="Transferir"){
-        // "Desde EUR Cuenta Remunerada" = transferencia interna
-        if(texto.includes("desde eur")||texto.includes("cuenta remunerada")||texto.includes("to javier")||texto.includes("javier silva")) tipo="transferencia";
-        else tipo = rawImp>=0?"ingreso":"gasto";
-      } else tipo = rawImp>=0?"ingreso":"gasto";
-
-      const importe=Math.abs(rawImp);
-      const isDup=existentes.has(fecha+"_"+importe);
-
-      return {_id:"v"+i,fecha,concepto:desc,textoParaCat:texto,importe,tipo,cuentaId:cuentaSelId,cuentaDestId:"",catId:"",skip:isDup,dup:isDup,sugerencia:null};
-    }).filter(Boolean);
-
-    await clasificarConIA(parsed.sort((a,b)=>b.fecha.localeCompare(a.fecha)));
-  }
-
-  // ── Clasificación IA ────────────────────────────────────────────────────────
-  async function clasificarConIA(parsed) {
-    setFilas(parsed);
-    const paraClas=parsed.filter(r=>!r.skip&&r.tipo!=="transferencia");
-    if(!paraClas.length) return;
-    const gastosCat=mCats.filter(c=>c.tipo==="gasto").map(c=>c.nombre).join(", ");
-    const ingresosCat=mCats.filter(c=>c.tipo==="ingreso").map(c=>c.nombre).join(", ");
-    const lineas=paraClas.map(r=>r._id+": "+r.textoParaCat).join("\n");
-    try{
-      const resp=await fetch("https://perricas.silva-and-co.workers.dev",{method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:800,
-          system:"Clasificador de movimientos bancarios espanoles. Devuelve el nombre EXACTO de la categoria de la lista o 'Sin categoria'. Responde SOLO JSON: {\"id\":\"categoria\"}",
-          messages:[{role:"user",content:"Categorias gasto: "+gastosCat+"\nCategorias ingreso: "+ingresosCat+"\n\nClasifica:\n"+lineas}]})});
-      if(resp.ok){
-        const data=await resp.json();
-        const text=data.content[0].text.replace(/```json|```/g,"").trim();
-        const sugs=JSON.parse(text);
-        setFilas(prev=>prev.map(r=>{const sug=sugs[r._id];const cat=mCats.find(c=>c.nombre===sug);return{...r,catId:cat?.id||"",sugerencia:cat?.nombre||null};}));
-      }
-    }catch(_){}
-  }
-
-  function updateFila(id,key,val){setFilas(prev=>prev.map(r=>r._id===id?{...r,[key]:val}:r));}
-
-  async function confirmarImport(){
-    const toImport=filas.filter(r=>!r.skip);
-    if(!toImport.length){alert("No hay movimientos para importar.");return;}
-    setImportando(true);
-    try{
-      const movs=toImport.map(r=>({
-        id:"imp_"+r._id+"_"+Date.now()+"_"+Math.random().toString(36).slice(2),
-        perfil_id:perfilActivo,tipo:r.tipo,fecha:r.fecha,
-        importe:parseFloat(r.importe),concepto:r.concepto||null,
-        cuenta_id:r.cuentaId,categoria_id:r.catId||null,
-        cuenta_dest_id:r.tipo==="transferencia"?(r.cuentaDestId||null):null,
-      }));
-      await onImport(movs);
-    }catch(ex){alert("Error: "+ex.message);setImportando(false);}
-  }
-
-  const pendientes=filas?filas.filter(r=>!r.skip).length:0;
-  const duplicados=filas?filas.filter(r=>r.dup).length:0;
-  const aceptar=banco==="bbva"?".xlsx,.xls":".csv";
-
-  return h("div",null,
-    h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"1rem"}},
-      h("h2",{style:{margin:0,fontSize:"1rem",fontWeight:600}},"⬆ Importar movimientos"),
-      filas&&pendientes>0&&h(Btn,{onClick:confirmarImport,disabled:importando},importando?"Importando...":"Importar "+pendientes+" movimientos")
-    ),
-
-    !filas&&h(Card,{style:{padding:"2rem"}},
-      h("div",{style:{fontSize:"2rem",textAlign:"center",marginBottom:"1rem"}},"📄"),
-
-      // Selector banco
-      h(Field,{label:"1. ¿De qué banco es el fichero?"},
-        h("div",{style:{display:"flex",gap:".5rem"}},
-          ...[["bbva","🏦 BBVA (.xlsx)"],["revolut","💳 Revolut (.csv)"]].map(([v,l])=>
-            h("button",{key:v,onClick:()=>setBanco(v),style:{flex:1,padding:".5rem",borderRadius:".5rem",cursor:"pointer",fontWeight:600,fontSize:".82rem",
-              background:banco===v?C.accentBg:C.sa,color:banco===v?C.ac:C.tm,border:"1px solid "+(banco===v?C.ac:C.bd)}},l)
-          )
-        )
-      ),
-
-      // Selector cuenta
-      h(Field,{label:"2. ¿A qué cuenta pertenece este extracto?"},
-        h("select",{value:cuentaSelId,onChange:e=>setCuentaSelId(e.target.value),style:IS},
-          h("option",{value:""},"— Selecciona una cuenta —"),
-          ...mCtas.map(c=>h("option",{key:c.id,value:c.id},c.nombre," (",c.tipo,")"))
-        )
-      ),
-
-      // Botón archivo
-      h("div",null,
-        h("label",{style:{display:"block",color:C.tm,fontSize:".775rem",marginBottom:".35rem",fontWeight:500}},"3. Selecciona el archivo"),
-        analizando
-          ?h("div",{style:{display:"flex",alignItems:"center",gap:".75rem",color:C.tm,padding:".5rem 0"}},
-              h("div",{style:{width:24,height:24,border:"3px solid "+C.bd,borderTopColor:C.ac,borderRadius:"50%",animation:"spin .8s linear infinite"}}),
-              h("span",{style:{fontSize:".875rem"}},"Analizando y clasificando con IA..."))
-          :h("label",{style:{display:"inline-block",background:cuentaSelId?C.ac:C.sa,color:cuentaSelId?"#fff":C.ts,borderRadius:".5rem",padding:".6rem 1.25rem",cursor:cuentaSelId?"pointer":"default",fontWeight:600,fontSize:".875rem"}},
-              "Seleccionar "+(banco==="bbva"?"archivo .xlsx":"archivo .csv"),
-              h("input",{type:"file",accept:aceptar,onChange:cargarArchivo,disabled:!cuentaSelId,style:{display:"none"}}))
-      )
-    ),
-
-    error&&h(Card,{style:{background:C.rb,border:"1px solid "+C.rd+"44",marginBottom:"1rem"}},h("p",{style:{margin:0,color:C.rd,fontSize:".875rem"}},error)),
-
-    filas&&!analizando&&h("div",null,
-      h(Card,{style:{marginBottom:"1rem",padding:".75rem 1rem"}},
-        h("div",{style:{display:"flex",gap:"1rem",flexWrap:"wrap",alignItems:"center"}},
-          h("span",{style:{color:C.gn,fontWeight:600,fontSize:".82rem"}},"✓ "+pendientes+" nuevos a importar"),
-          duplicados>0&&h("span",{style:{color:C.ts,fontSize:".82rem"}},duplicados+" duplicados omitidos"),
-          h("div",{style:{display:"flex",gap:".5rem",marginLeft:"auto"}},
-            h("button",{onClick:()=>setFilas(prev=>prev.map(r=>({...r,skip:false}))),style:{background:"none",border:"1px solid "+C.bd,borderRadius:".4rem",color:C.tm,cursor:"pointer",fontSize:".78rem",padding:".25rem .6rem"}},"✓ Todos"),
-            h("button",{onClick:()=>setFilas(prev=>prev.map(r=>({...r,skip:true}))),style:{background:"none",border:"1px solid "+C.bd,borderRadius:".4rem",color:C.tm,cursor:"pointer",fontSize:".78rem",padding:".25rem .6rem"}},"✗ Ninguno"),
-            h("button",{onClick:()=>setFilas(null),style:{background:"none",border:"none",color:C.tm,cursor:"pointer",fontSize:".8rem"}},"← Cargar otro")
-          )
-        )
-      ),
-
-      // Saldos proyectados por cuenta
-      h(Card,{style:{marginBottom:"1rem",padding:".75rem 1rem",background:C.accentBg,border:"1px solid "+C.ac+"33"}},
-        h("p",{style:{margin:"0 0 .6rem",fontWeight:600,fontSize:".8rem",color:C.ac}},"💳 Saldo proyectado tras importar"),
-        h("div",{style:{display:"flex",flexWrap:"wrap",gap:".75rem"}},
-          ...mCtas.map(cta=>{
-            // Saldo actual del dashboard (ya calculado correctamente con saldo_inicial + movimientos)
-            const saldoActual = saldos[cta.id]||0;
-            // Impacto de los movimientos seleccionados sobre esta cuenta
-            const impacto = (filas||[]).filter(r=>!r.skip).reduce((s,r)=>{
-              if(r.cuentaId===cta.id){
-                if(r.tipo==="ingreso") return s+r.importe;
-                if(r.tipo==="gasto")   return s-r.importe;
-                if(r.tipo==="transferencia") return s-r.importe;
-              }
-              if(r.cuentaDestId===cta.id&&r.tipo==="transferencia") return s+r.importe;
-              return s;
-            },0);
-            const saldoFinal = saldoActual + impacto;
-            const cambio = Math.abs(impacto)>0.001;
-            // Último movimiento registrado en esta cuenta
-            const movsDeEsta = mMovs.filter(m=>m.cuenta_id===cta.id||m.cuenta_dest_id===cta.id);
-            const ultimaFecha = movsDeEsta.length>0 ? movsDeEsta.map(m=>m.fecha).sort().reverse()[0] : null;
-            return h("div",{key:cta.id,style:{display:"flex",alignItems:"center",gap:".5rem",background:C.sf,borderRadius:".5rem",padding:".45rem .75rem",border:"1px solid "+C.bd}},
-              h("span",{style:{width:8,height:8,borderRadius:"50%",background:cta.color,flexShrink:0}}),
-              h("div",null,
-                h("p",{style:{margin:0,color:C.tm,fontSize:".7rem",fontWeight:500}},cta.nombre),
-                h("p",{style:{margin:"0.1rem 0 0",fontWeight:700,fontSize:".88rem",fontFamily:"'Inter',system-ui,sans-serif",color:saldoFinal>=0?C.gn:C.rd}},
-                  fmt(saldoFinal),
-                  cambio&&h("span",{style:{fontSize:".7rem",fontWeight:500,color:impacto>=0?C.gn:C.rd,marginLeft:".35rem"}},
-                    (impacto>=0?"+":"")+fmt(impacto)
-                  )
-                ),
-                h("p",{style:{margin:"0.1rem 0 0",color:C.ts,fontSize:".68rem"}},
-                  ultimaFecha ? "Último mov.: "+fmtD(ultimaFecha) : "Sin movimientos"
-                )
-              )
-            );
-          })
-        )
-      ),
-      h("div",{style:{display:"flex",flexDirection:"column",gap:".35rem"}},
-        filas.map(r=>h(Card,{key:r._id,style:{padding:".6rem .9rem",opacity:r.skip?.7:1,background:r.dup?C.sa:C.sf}},
-          h("div",{style:{display:"flex",alignItems:"center",gap:".5rem",flexWrap:"wrap"}},
-            h("input",{type:"checkbox",checked:!r.skip,onChange:e=>updateFila(r._id,"skip",!e.target.checked),style:{flexShrink:0,width:16,height:16,cursor:"pointer"}}),
-            h("span",{style:{color:C.ts,fontSize:".72rem",flexShrink:0,minWidth:68}},r.fecha),
-            h("div",{style:{flex:1,minWidth:100}},
-              h("input",{value:r.concepto,onChange:e=>updateFila(r._id,"concepto",e.target.value),disabled:r.skip,
-                style:{...IS,padding:".28rem .5rem",fontSize:".79rem",background:r.skip?"transparent":C.sa,border:r.skip?"none":"1px solid "+C.bd}})
-            ),
-            h("select",{value:r.tipo,onChange:e=>updateFila(r._id,"tipo",e.target.value),disabled:r.skip,
-              style:{...IS,width:"auto",padding:".28rem .45rem",fontSize:".77rem",color:r.tipo==="ingreso"?C.gn:r.tipo==="transferencia"?C.bl:C.rd}},
-              h("option",{value:"gasto"},"↓ Gasto"),h("option",{value:"ingreso"},"↑ Ingreso"),h("option",{value:"transferencia"},"↔ Transf.")
-            ),
-            r.tipo!=="transferencia"&&h("select",{value:r.catId,onChange:e=>updateFila(r._id,"catId",e.target.value),disabled:r.skip,
-              style:{...IS,width:"auto",padding:".28rem .45rem",fontSize:".77rem"}},
-              h("option",{value:""},"Sin cat."),
-              ...mCats.filter(c=>c.tipo===r.tipo).map(c=>h("option",{key:c.id,value:c.id},c.icono+" "+c.nombre))
-            ),
-            r.tipo==="transferencia"
-              ?h(Fragment,null,
-                  h("select",{value:r.cuentaId,onChange:e=>updateFila(r._id,"cuentaId",e.target.value),disabled:r.skip,
-                    style:{...IS,width:"auto",padding:".28rem .45rem",fontSize:".77rem"}},
-                    ...mCtas.map(c=>h("option",{key:c.id,value:c.id},"↑ "+c.nombre))
-                  ),
-                  h("span",{style:{color:C.ts,fontSize:".75rem",flexShrink:0}},"→"),
-                  h("select",{value:r.cuentaDestId,onChange:e=>updateFila(r._id,"cuentaDestId",e.target.value),disabled:r.skip,
-                    style:{...IS,width:"auto",padding:".28rem .45rem",fontSize:".77rem",borderColor:!r.cuentaDestId&&!r.skip?C.rd:C.bd}},
-                    h("option",{value:""},"Destino..."),
-                    ...mCtas.filter(c=>c.id!==r.cuentaId).map(c=>h("option",{key:c.id,value:c.id},"↓ "+c.nombre))
-                  )
-                )
-              :h("select",{value:r.cuentaId,onChange:e=>updateFila(r._id,"cuentaId",e.target.value),disabled:r.skip,
-                  style:{...IS,width:"auto",padding:".28rem .45rem",fontSize:".77rem"}},
-                  ...mCtas.map(c=>h("option",{key:c.id,value:c.id},c.nombre))
-                ),
-            h("span",{style:{fontWeight:700,fontSize:".88rem",fontFamily:"'Inter',system-ui,sans-serif",
-              color:r.tipo==="ingreso"?C.gn:r.tipo==="transferencia"?C.bl:C.rd,flexShrink:0,minWidth:72,textAlign:"right"}},
-              (r.tipo==="ingreso"?"+":r.tipo==="transferencia"?"":"-")+r.importe.toFixed(2)+"€")
-          ),
-          r.dup&&h("div",{style:{paddingLeft:"1.5rem",marginTop:".2rem"}},h("span",{style:{fontSize:".7rem",color:C.ts,background:C.sa,borderRadius:"99px",padding:".1rem .5rem"}},"⚠ Posible duplicado")),
-          r.sugerencia&&!r.skip&&!r.dup&&h("div",{style:{paddingLeft:"1.5rem",marginTop:".2rem"}},h("span",{style:{fontSize:".7rem",color:C.ac,background:C.ab,borderRadius:"99px",padding:".1rem .5rem"}},"✦ IA: "+r.sugerencia))
-        ))
-      )
-    )
   );
 }
 
@@ -854,7 +503,7 @@ function VistaInforme({mMovs, mCats, mCtas, prof}) {
 
       var resumen = lineas.join("\n");
 
-      var resp = await fetch("https://perricas.silva-and-co.workers.dev", {
+      var resp = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
@@ -866,8 +515,7 @@ function VistaInforme({mMovs, mCats, mCtas, prof}) {
       });
 
       var data = await resp.json();
-      if (!resp.ok) throw new Error(data.error ? data.error.message : "Error en la API: "+JSON.stringify(data));
-      if (!data.content || !data.content[0]) throw new Error("Respuesta inesperada: "+JSON.stringify(data));
+      if (!resp.ok) throw new Error(data.error ? data.error.message : "Error en la API");
       setInforme(data.content[0].text);
     } catch(e) {
       setError("Error generando el informe: " + e.message);
@@ -916,26 +564,17 @@ function VistaInforme({mMovs, mCats, mCtas, prof}) {
 }
 
 // ── Modales ───────────────────────────────────────────────────────────────────
-function MovModal({ctas,cats,movs,mov,onSave,onClose}){
-  const esEdit=!!mov;
-  const[f,setF]=useState({
-    tipo:mov?.tipo||"gasto",
-    fecha:mov?.fecha||tod(),
-    importe:mov?.importe!=null?String(mov.importe):"",
-    concepto:mov?.concepto||"",
-    cuentaId:mov?.cuenta_id||ctas[0]?.id||"",
-    catId:mov?.categoria_id||"",
-    cuentaDestId:mov?.cuenta_dest_id||""
-  });
+function MovModal({ctas,cats,movs,onSave,onClose}){
+  const[f,setF]=useState({tipo:"gasto",fecha:tod(),importe:"",concepto:"",cuentaId:ctas[0]?.id||"",catId:"",cuentaDestId:""});
   const[sav,setSav]=useState(false);
   const s=(k,v)=>setF(x=>({...x,[k]:v}));
   const cf=useMemo(()=>cats.filter(c=>c.tipo===f.tipo),[cats,f.tipo]);
-  useEffect(()=>{if(!esEdit&&f.tipo!=="transferencia"){const ok=cf.find(c=>c.id===f.catId);if(!ok)s("catId",cf[0]?.id||"");}},[f.tipo]);
+  useEffect(()=>{if(f.tipo!=="transferencia"){const ok=cf.find(c=>c.id===f.catId);if(!ok)s("catId",cf[0]?.id||"");}},[f.tipo]);
   const sugs=useMemo(()=>[...new Set(movs.map(m=>m.concepto).filter(Boolean))],[movs]);
   async function save(){if(!f.importe||!f.cuentaId||!f.fecha){alert("Rellena los campos obligatorios.");return;}if(f.tipo==="transferencia"&&!f.cuentaDestId){alert("Selecciona cuenta destino.");return;}setSav(true);try{await onSave(f);}catch(e){alert("Error: "+e.message);}finally{setSav(false);}}
   const vb=f.tipo==="ingreso"?"success":f.tipo==="transferencia"?"blue":"danger";
   const tipos=[["gasto","↓ Gasto",C.rd,C.rb],["ingreso","↑ Ingreso",C.gn,C.gb],["transferencia","↔ Transferencia",C.bl,C.bb]];
-  return h(Modal,{title:esEdit?"Editar movimiento":"Nuevo movimiento",onClose},
+  return h(Modal,{title:"Nuevo movimiento",onClose},
     h("div",{style:{display:"flex",gap:".4rem",marginBottom:"1.1rem"}},...tipos.map(([v,l,ac,bg])=>h("button",{key:v,onClick:()=>s("tipo",v),style:{flex:1,padding:".45rem .25rem",borderRadius:".5rem",cursor:"pointer",fontWeight:600,fontSize:".78rem",background:f.tipo===v?bg:C.sa,color:f.tipo===v?ac:C.tm,border:`1px solid ${f.tipo===v?ac:C.bd}`}},l))),
     h(Inp,{label:"Fecha *",type:"date",value:f.fecha,onChange:e=>s("fecha",e.target.value)}),
     h(Inp,{label:"Importe (€) *",type:"number",min:"0",step:"0.01",placeholder:"0,00",value:f.importe,onChange:e=>s("importe",e.target.value)}),
@@ -945,7 +584,7 @@ function MovModal({ctas,cats,movs,mov,onSave,onClose}){
     f.tipo!=="transferencia"&&h(Field,{label:"Categoría"},h("select",{value:f.catId,onChange:e=>s("catId",e.target.value),style:IS},h("option",{value:""},"— Sin categoría —"),...cf.map(c=>h("option",{key:c.id,value:c.id},c.icono," ",c.nombre)))),
     h("div",{style:{display:"flex",justifyContent:"flex-end",gap:".4rem",marginTop:".5rem"}},
       h(Btn,{variant:"ghost",onClick:onClose},"Cancelar"),
-      h(Btn,{variant:vb,onClick:save,disabled:sav},sav?"Guardando…":esEdit?"Guardar cambios":"Guardar")
+      h(Btn,{variant:vb,onClick:save,disabled:sav},sav?"Guardando…":"Guardar")
     )
   );
 }
@@ -1009,152 +648,62 @@ function ProfModal({profs,activo,onCambiar,onAdd,onDel,onClose}){
   );
 }
 
-// ── Auth Google via Supabase ──────────────────────────────────────────────────
+// ── Login ─────────────────────────────────────────────────────────────────────
+const PWD_HASH = "526f03113586ad6de46545ee7d82cf1ef9f3f24fc02f7b688c2e6814ce48f782";
 const AUTH_KEY = "perricas_auth";
-const EMAILS_AUTORIZADOS = ["beatrizbeasac@gmail.com", "silva.and.co@gmail.com"];
 
-// Cliente Supabase Auth (usando la misma URL y KEY ya definidas)
-const sbAuth = {
-  async getSession() {
-    const r = await fetch(SB_URL+"/auth/v1/user", {
-      headers:{apikey:SB_KEY, Authorization:"Bearer "+(localStorage.getItem("perricas_auth")||"")}
-    });
-    if (!r.ok) return null;
-    return r.json();
-  },
-  async signInWithGoogle() {
-    const redirect = encodeURIComponent(window.location.href.split("?")[0]);
-    window.location.href = SB_URL+"/auth/v1/authorize?provider=google&redirect_to="+redirect;
-  },
-  async signOut() {
-    const token = localStorage.getItem(AUTH_KEY);
-    if (token) {
-      await fetch(SB_URL+"/auth/v1/logout", {
-        method:"POST",
-        headers:{apikey:SB_KEY, Authorization:"Bearer "+token, "Content-Type":"application/json"}
-      }).catch(()=>{});
-    }
-    localStorage.removeItem(AUTH_KEY);
-    localStorage.removeItem("perricas_user");
-  }
-};
-
-// El token ya fue extraído por extractTokenEarly() al cargar la página
-// Esta función solo comprueba si hay token guardado
-function extractTokenFromUrl() {
-  return localStorage.getItem("perricas_auth");
+async function hashStr(str) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
 }
 
 function LoginScreen({onAuth}) {
+  const [pwd, setPwd] = useState("");
+  const [err, setErr] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState(null);
 
-  useEffect(()=>{
-    // Si venimos del redirect de Google, extraer el token
-    const token = extractTokenFromUrl();
-    if (token) { onAuth(); return; }
-    // Si ya hay sesión guardada, verificarla
-    const saved = localStorage.getItem(AUTH_KEY);
-    if (saved) {
-      setLoading(true);
-      sbAuth.getSession().then(u=>{
-        if (u && u.id) onAuth();
-        else { localStorage.removeItem(AUTH_KEY); setLoading(false); }
-      }).catch(()=>setLoading(false));
+  async function handleLogin() {
+    if (!pwd) return;
+    setLoading(true);
+    const h2 = await hashStr(pwd);
+    if (h2 === PWD_HASH) {
+      localStorage.setItem(AUTH_KEY, "1");
+      onAuth();
+    } else {
+      setErr(true);
+      setLoading(false);
+      setPwd("");
     }
-  },[]);
-
-  async function loginGoogle() {
-    setLoading(true); setErr(null);
-    try { await sbAuth.signInWithGoogle(); }
-    catch(e) { setErr("Error al conectar con Google: "+e.message); setLoading(false); }
   }
 
-  return h("div",{style:{minHeight:"100vh",background:"#f4f3f0",display:"flex",alignItems:"center",justifyContent:"center",padding:"1rem"}},
-    h("div",{style:{background:"#faf9f7",borderRadius:"1rem",padding:"2.5rem 2rem",width:"100%",maxWidth:360,boxShadow:"0 8px 40px rgba(44,42,39,.12)",border:"1px solid #e0ddd8",textAlign:"center"}},
-      h("div",{style:{fontSize:"2.5rem",marginBottom:".5rem"}},"◈"),
-      h("h1",{style:{margin:"0 0 .4rem",fontFamily:"'Inter',system-ui,sans-serif",fontSize:"1.6rem",color:"#2c2a27",fontWeight:700,letterSpacing:"-.02em"}},"Perricas"),
-      h("p",{style:{margin:"0 0 2rem",color:"#a09c97",fontSize:".85rem"}},"Contabilidad del hogar"),
-      loading
-        ?h("div",{style:{display:"flex",alignItems:"center",justifyContent:"center",gap:".75rem",color:"#6b6760",padding:"1rem"}},
-            h("div",{style:{width:22,height:22,border:"2px solid #e0ddd8",borderTopColor:"#7c6f5e",borderRadius:"50%",animation:"spin .8s linear infinite"}}),
-            h("span",{style:{fontSize:".875rem"}},"Conectando...")
-          )
-        :h("button",{onClick:loginGoogle,style:{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:".75rem",background:"#fff",border:"1px solid #e0ddd8",borderRadius:".6rem",padding:".8rem 1rem",cursor:"pointer",fontSize:".9rem",fontWeight:600,color:"#2c2a27",boxShadow:"0 1px 4px rgba(0,0,0,.08)"}},
-            // Logo Google SVG
-            h("svg",{width:20,height:20,viewBox:"0 0 24 24"},
-              h("path",{fill:"#4285F4",d:"M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"}),
-              h("path",{fill:"#34A853",d:"M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"}),
-              h("path",{fill:"#FBBC05",d:"M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"}),
-              h("path",{fill:"#EA4335",d:"M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"})
-            ),
-            "Entrar con Google"
-          ),
-      err&&h("p",{style:{margin:"1rem 0 0",color:"#b85c4a",fontSize:".8rem"}},err)
+  return h("div", {style:{minHeight:"100vh",background:"#f4f3f0",display:"flex",alignItems:"center",justifyContent:"center",padding:"1rem"}},
+    h("div", {style:{background:"#faf9f7",borderRadius:"1rem",padding:"2rem",width:"100%",maxWidth:360,boxShadow:"0 8px 40px rgba(44,42,39,.12)",border:"1px solid #e0ddd8"}},
+      h("div", {style:{textAlign:"center",marginBottom:"1.75rem"}},
+        h("div", {style:{fontSize:"2rem",marginBottom:".5rem"}}, "◈"),
+        h("h1", {style:{margin:0,fontFamily:"'Inter',system-ui,sans-serif",fontSize:"1.5rem",color:"#2c2a27",fontWeight:600}}, "Perricas"),
+        h("p", {style:{margin:".4rem 0 0",color:"#a09c97",fontSize:".82rem"}}, "Introduce la contraseña para acceder")
+      ),
+      h("input", {
+        type:"password", value:pwd, placeholder:"Contraseña",
+        onChange:e=>{setPwd(e.target.value);setErr(false);},
+        onKeyDown:e=>e.key==="Enter"&&handleLogin(),
+        autoFocus:true,
+        style:{width:"100%",boxSizing:"border-box",background:"#eeecea",border:"1px solid "+(err?"#b85c4a":"#e0ddd8"),borderRadius:".5rem",color:"#2c2a27",padding:".65rem .75rem",fontSize:"0.95rem",outline:"none",marginBottom:".75rem"}
+      }),
+      err && h("p", {style:{margin:"0 0 .75rem",color:"#b85c4a",fontSize:".8rem",textAlign:"center"}}, "Contraseña incorrecta"),
+      h("button", {
+        onClick:handleLogin, disabled:loading||!pwd,
+        style:{width:"100%",background:"#7c6f5e",color:"#fff",border:"none",borderRadius:".5rem",padding:".7rem",fontSize:".9rem",fontWeight:600,cursor:pwd&&!loading?"pointer":"default",opacity:pwd&&!loading?1:.5}
+      }, loading?"Comprobando…":"Entrar")
     )
   );
 }
 
 function Root() {
-  const [auth, setAuth] = useState(false);
-  const [checking, setChecking] = useState(true);
-  const [noAutorizado, setNoAutorizado] = useState(false);
-
-  async function verificar() {
-    const saved = localStorage.getItem(AUTH_KEY);
-    if (!saved) { setChecking(false); return; }
-    try {
-      const u = await sbAuth.getSession();
-      if (u && u.email) {
-        // Comprobar si el email está autorizado
-        // El propio dueño (cualquier email del mismo proyecto Supabase) está siempre autorizado
-        // Solo bloqueamos emails que NO están en la lista blanca
-        if (EMAILS_AUTORIZADOS.length > 0 && !EMAILS_AUTORIZADOS.includes(u.email)) {
-          // Email no autorizado
-          await sbAuth.signOut();
-          setNoAutorizado(true);
-          setChecking(false);
-          return;
-        }
-        setAuth(true);
-      } else {
-        localStorage.removeItem(AUTH_KEY);
-      }
-    } catch(_) {
-      localStorage.removeItem(AUTH_KEY);
-    }
-    setChecking(false);
-  }
-
-  useEffect(()=>{
-    const token = extractTokenFromUrl();
-    if (token) {
-      // Verificar el token recién obtenido
-      verificar();
-      return;
-    }
-    verificar();
-  },[]);
-
-  async function logout() {
-    await sbAuth.signOut();
-    setAuth(false);
-    setNoAutorizado(false);
-  }
-
-  if (checking) return h(Spinner,{text:"Cargando..."});
-
-  if (noAutorizado) return h("div",{style:{minHeight:"100vh",background:"#f4f3f0",display:"flex",alignItems:"center",justifyContent:"center",padding:"1rem"}},
-    h("div",{style:{background:"#faf9f7",borderRadius:"1rem",padding:"2.5rem 2rem",width:"100%",maxWidth:360,boxShadow:"0 8px 40px rgba(44,42,39,.12)",border:"1px solid #e0ddd8",textAlign:"center"}},
-      h("div",{style:{fontSize:"2rem",marginBottom:"1rem"}},"🔒"),
-      h("h2",{style:{margin:"0 0 .5rem",color:"#2c2a27",fontSize:"1.1rem",fontWeight:600}},"Acceso no autorizado"),
-      h("p",{style:{color:"#6b6760",fontSize:".85rem",margin:"0 0 1.5rem",lineHeight:1.6}},"Esta aplicación es privada. Solo pueden acceder las cuentas autorizadas."),
-      h("button",{onClick:logout,style:{background:"#7c6f5e",color:"#fff",border:"none",borderRadius:".5rem",padding:".6rem 1.25rem",cursor:"pointer",fontWeight:600,fontSize:".875rem"}},"Volver al inicio")
-    )
-  );
-
-  if (!auth) return h(LoginScreen,{onAuth:()=>{ verificar(); }});
-  return h(App,{onLogout:logout});
+  const [auth, setAuth] = useState(!!localStorage.getItem(AUTH_KEY));
+  function logout() { localStorage.removeItem(AUTH_KEY); setAuth(false); }
+  if (!auth) return h(LoginScreen, {onAuth:()=>setAuth(true)});
+  return h(App, {onLogout:logout});
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(h(Root,null));
