@@ -610,7 +610,7 @@ function EvoMensual({mMovs, mCtas, TIPOS}) {
           )),
           h("tbody",null,...tabFilas.map((f,i)=>h("tr",{key:f.key,style:{background:i%2===0?C.sa:"transparent"}},
             h("td",{style:{padding:".35rem .5rem",color:C.tx,fontWeight:500,whiteSpace:"nowrap"}},f.lb),
-            h("td",{style:{padding:".35rem .5rem",textAlign:"right",color:f.ing>0?C.gn:C.ts,fontFamily:"'Inter',system-ui,sans-serif"}},f.ing>0?fmt(f.ing),"—"),
+            h("td",{style:{padding:".35rem .5rem",textAlign:"right",color:f.ing>0?C.gn:C.ts,fontFamily:"'Inter',system-ui,sans-serif"}},f.ing>0?fmt(f.ing):"—"),
             h("td",{style:{padding:".35rem .5rem",textAlign:"right",color:f.gas>0?C.rd:C.ts,fontFamily:"'Inter',system-ui,sans-serif"}},f.gas>0?fmt(f.gas):"—"),
             h("td",{style:{padding:".35rem .5rem",textAlign:"right",color:f.neto>=0?C.gn:C.rd,fontWeight:600,fontFamily:"'Inter',system-ui,sans-serif"}},fmt(f.neto)),
             h("td",{style:{padding:".35rem .5rem",textAlign:"right",color:f.acumNeto>=0?C.ac:C.rd,fontWeight:700,fontFamily:"'Inter',system-ui,sans-serif"}},fmt(f.acumNeto))
