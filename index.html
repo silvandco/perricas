@@ -344,8 +344,27 @@ function App({onLogout}){
                 )
               );
             }),
-            h("div",{style:{borderTop:`1px solid ${C.bd}`,marginTop:".4rem",paddingTop:".6rem",display:"flex",justifyContent:"space-between",alignItems:"center"}},
-              h("span",{style:{fontSize:".78rem",color:C.tm,fontWeight:600}},"Total"),
+
+            // Subtotales por tipo
+            h("div",{style:{borderTop:`1px solid ${C.bd}`,marginTop:".2rem",paddingTop:".65rem",display:"flex",flexDirection:"column",gap:".3rem"}},
+              h("p",{style:{margin:"0 0 .4rem",fontSize:".72rem",fontWeight:700,color:C.tm,textTransform:"uppercase",letterSpacing:".05em"}},"Por tipo"),
+              ...Object.entries(
+                mCtas.reduce((acc,c)=>{
+                  const tipo=TIPOS.find(t=>t.v===c.tipo)?.l||c.tipo;
+                  acc[tipo]=(acc[tipo]||0)+(saldos[c.id]||0);
+                  return acc;
+                },{})
+              ).sort((a,b)=>b[1]-a[1]).map(([tipo,total])=>
+                h("div",{key:tipo,style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:".5rem"}},
+                  h("span",{style:{fontSize:".72rem",color:C.tm,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},tipo),
+                  h("span",{style:{fontSize:".78rem",fontWeight:600,fontFamily:"'Inter',system-ui,sans-serif",color:total>=0?C.gn:C.rd,flexShrink:0}},fmt(total))
+                )
+              )
+            ),
+
+            // Total global
+            h("div",{style:{borderTop:`1px solid ${C.bd}`,paddingTop:".6rem",display:"flex",justifyContent:"space-between",alignItems:"center"}},
+              h("span",{style:{fontSize:".78rem",color:C.tm,fontWeight:700}},"Total"),
               h("span",{style:{fontWeight:700,fontSize:".95rem",fontFamily:"'Inter',system-ui,sans-serif",color:sTotal>=0?C.gn:C.rd}},fmt(sTotal))
             )
           )
