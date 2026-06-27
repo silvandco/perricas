@@ -190,6 +190,7 @@ function App({onLogout}){
   const[vista,setVista]=useState("dashboard");
   const[modal,setModal]=useState(null);
   const[ctaEditar,setCtaEditar]=useState(null);
+  const[movEditar,setMovEditar]=useState(null);
   const[fil,setFil]=useState({mes:tod().slice(0,7),cuenta:"",cat:""});
 
   const reload=useCallback(async()=>{
@@ -254,6 +255,12 @@ function App({onLogout}){
 
   async function addMov(f){const m={id:uid(),perfil_id:pa,tipo:f.tipo,fecha:f.fecha,importe:parseFloat(f.importe),concepto:f.concepto||null,cuenta_id:f.cuentaId,categoria_id:f.catId||null,cuenta_dest_id:f.cuentaDestId||null};await sb.upsert("movimientos",m);setMovs(ms=>[...ms,m]);setModal(null);}
   async function delMov(id){if(!confirm("¿Eliminar?"))return;await sb.del("movimientos",id);setMovs(ms=>ms.filter(m=>m.id!==id));}
+  async function editMov(id,form){
+    const mov={id,perfil_id:pa,tipo:form.tipo,fecha:form.fecha,importe:parseFloat(form.importe),concepto:form.concepto||null,cuenta_id:form.cuentaId,categoria_id:form.catId||null,cuenta_dest_id:form.tipo==="transferencia"?(form.cuentaDestId||null):null};
+    await sb.upsert("movimientos",mov);
+    setMovs(ms=>ms.map(m=>m.id===id?mov:m));
+    setMovEditar(null);setModal(null);
+  }
   async function addCta(f){const c={id:uid(),perfil_id:pa,nombre:f.nombre,tipo:f.tipo,color:f.color,saldo_inicial:parseFloat(f.si||0)};await sb.upsert("cuentas",c);setCtas(cs=>[...cs,c]);setModal(null);}
   async function editCta(id,f){const c={id,perfil_id:pa,nombre:f.nombre,tipo:f.tipo,color:f.color,saldo_inicial:parseFloat(f.si||0)};await sb.upsert("cuentas",c);setCtas(cs=>cs.map(x=>x.id===id?c:x));setCtaEditar(null);setModal(null);}
   async function delCta(id){if(mMovs.some(m=>m.cuenta_id===id||m.cuenta_dest_id===id)){alert("Tiene movimientos.");return;}if(!confirm("¿Eliminar cuenta?"))return;await sb.del("cuentas",id);setCtas(cs=>cs.filter(c=>c.id!==id));}
@@ -418,7 +425,8 @@ function App({onLogout}){
               h("p",{style:{margin:".1rem 0 0",color:C.ts,fontSize:".72rem"}},fmtD(m.fecha)," · ",cta?.nombre,ctaD&&[" → ",ctaD.nombre],!isT&&cat&&[" · ",cat.nombre])
             ),
             h("span",{style:{fontWeight:700,fontSize:".9rem",color:col,flexShrink:0,fontFamily:"'Inter',system-ui,sans-serif"}},isI?"+":isT?"":"-",fmt(m.importe)),
-            h("button",{onClick:()=>delMov(m.id),style:{background:"none",border:"none",color:C.ts,cursor:"pointer",fontSize:".85rem",padding:".2rem",flexShrink:0,opacity:.6}},"✕")
+            h("button",{onClick:()=>{setMovEditar(m);setModal("editmov");},title:"Editar",style:{background:"none",border:"none",color:C.tm,cursor:"pointer",fontSize:".85rem",padding:".2rem",flexShrink:0,opacity:.6}},"✏️"),
+            h("button",{onClick:()=>delMov(m.id),title:"Eliminar",style:{background:"none",border:"none",color:C.ts,cursor:"pointer",fontSize:".85rem",padding:".2rem",flexShrink:0,opacity:.6}},"✕")
           );
         }))
       ),
@@ -466,6 +474,7 @@ function App({onLogout}){
     ),
 
     modal==="movimiento"&&h(MovModal,{ctas:mCtas,cats:mCats,movs:mMovs,onSave:addMov,onClose:()=>setModal(null)}),
+    modal==="editmov"&&movEditar&&h(MovModal,{ctas:mCtas,cats:mCats,movs:mMovs,mov:movEditar,onSave:f=>editMov(movEditar.id,f),onClose:()=>{setModal(null);setMovEditar(null);}}),
     modal==="cuenta"&&h(CtaModal,{onSave:addCta,onClose:()=>setModal(null)}),
     modal==="editcuenta"&&ctaEditar&&h(CtaModal,{cta:ctaEditar,onSave:f=>editCta(ctaEditar.id,f),onClose:()=>{setModal(null);setCtaEditar(null);}}),
     modal==="categoria"&&h(CatModal,{onSave:addCat,onClose:()=>setModal(null)}),
@@ -906,17 +915,26 @@ function VistaInforme({mMovs, mCats, mCtas, prof}) {
 }
 
 // ── Modales ───────────────────────────────────────────────────────────────────
-function MovModal({ctas,cats,movs,onSave,onClose}){
-  const[f,setF]=useState({tipo:"gasto",fecha:tod(),importe:"",concepto:"",cuentaId:ctas[0]?.id||"",catId:"",cuentaDestId:""});
+function MovModal({ctas,cats,movs,mov,onSave,onClose}){
+  const esEdit=!!mov;
+  const[f,setF]=useState({
+    tipo:mov?.tipo||"gasto",
+    fecha:mov?.fecha||tod(),
+    importe:mov?.importe!=null?String(mov.importe):"",
+    concepto:mov?.concepto||"",
+    cuentaId:mov?.cuenta_id||ctas[0]?.id||"",
+    catId:mov?.categoria_id||"",
+    cuentaDestId:mov?.cuenta_dest_id||""
+  });
   const[sav,setSav]=useState(false);
   const s=(k,v)=>setF(x=>({...x,[k]:v}));
   const cf=useMemo(()=>cats.filter(c=>c.tipo===f.tipo),[cats,f.tipo]);
-  useEffect(()=>{if(f.tipo!=="transferencia"){const ok=cf.find(c=>c.id===f.catId);if(!ok)s("catId",cf[0]?.id||"");}},[f.tipo]);
+  useEffect(()=>{if(!esEdit&&f.tipo!=="transferencia"){const ok=cf.find(c=>c.id===f.catId);if(!ok)s("catId",cf[0]?.id||"");}},[f.tipo]);
   const sugs=useMemo(()=>[...new Set(movs.map(m=>m.concepto).filter(Boolean))],[movs]);
   async function save(){if(!f.importe||!f.cuentaId||!f.fecha){alert("Rellena los campos obligatorios.");return;}if(f.tipo==="transferencia"&&!f.cuentaDestId){alert("Selecciona cuenta destino.");return;}setSav(true);try{await onSave(f);}catch(e){alert("Error: "+e.message);}finally{setSav(false);}}
   const vb=f.tipo==="ingreso"?"success":f.tipo==="transferencia"?"blue":"danger";
   const tipos=[["gasto","↓ Gasto",C.rd,C.rb],["ingreso","↑ Ingreso",C.gn,C.gb],["transferencia","↔ Transferencia",C.bl,C.bb]];
-  return h(Modal,{title:"Nuevo movimiento",onClose},
+  return h(Modal,{title:esEdit?"Editar movimiento":"Nuevo movimiento",onClose},
     h("div",{style:{display:"flex",gap:".4rem",marginBottom:"1.1rem"}},...tipos.map(([v,l,ac,bg])=>h("button",{key:v,onClick:()=>s("tipo",v),style:{flex:1,padding:".45rem .25rem",borderRadius:".5rem",cursor:"pointer",fontWeight:600,fontSize:".78rem",background:f.tipo===v?bg:C.sa,color:f.tipo===v?ac:C.tm,border:`1px solid ${f.tipo===v?ac:C.bd}`}},l))),
     h(Inp,{label:"Fecha *",type:"date",value:f.fecha,onChange:e=>s("fecha",e.target.value)}),
     h(Inp,{label:"Importe (€) *",type:"number",min:"0",step:"0.01",placeholder:"0,00",value:f.importe,onChange:e=>s("importe",e.target.value)}),
@@ -926,7 +944,7 @@ function MovModal({ctas,cats,movs,onSave,onClose}){
     f.tipo!=="transferencia"&&h(Field,{label:"Categoría"},h("select",{value:f.catId,onChange:e=>s("catId",e.target.value),style:IS},h("option",{value:""},"— Sin categoría —"),...cf.map(c=>h("option",{key:c.id,value:c.id},c.icono," ",c.nombre)))),
     h("div",{style:{display:"flex",justifyContent:"flex-end",gap:".4rem",marginTop:".5rem"}},
       h(Btn,{variant:"ghost",onClick:onClose},"Cancelar"),
-      h(Btn,{variant:vb,onClick:save,disabled:sav},sav?"Guardando…":"Guardar")
+      h(Btn,{variant:vb,onClick:save,disabled:sav},sav?"Guardando…":esEdit?"Guardar cambios":"Guardar")
     )
   );
 }
