@@ -866,7 +866,8 @@ function VistaInforme({mMovs, mCats, mCtas, prof}) {
       });
 
       var data = await resp.json();
-      if (!resp.ok) throw new Error(data.error ? data.error.message : "Error en la API");
+      if (!resp.ok) throw new Error(data.error ? data.error.message : "Error en la API: "+JSON.stringify(data));
+      if (!data.content || !data.content[0]) throw new Error("Respuesta inesperada: "+JSON.stringify(data));
       setInforme(data.content[0].text);
     } catch(e) {
       setError("Error generando el informe: " + e.message);
