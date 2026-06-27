@@ -75,8 +75,6 @@ const sb = {
     if (error) throw new Error(error.message);
   }
 };
-    const r=await fetch(SB_URL+"/rest/v1/"+t,{method:"POST",headers:{...getHdr(),Prefer:"resolution=merge-duplicates"},body:JSON.stringify(Array.isArray(rows)?rows:[rows])});
-    if(!r.ok)throw new Error(await r.text());
 
 // ── Config ────────────────────────────────────────────────────────────────────
 const C={bg:"#f4f3f0",sf:"#faf9f7",sa:"#eeecea",bd:"#e0ddd8",bf:"#b0a99f",tx:"#2c2a27",tm:"#6b6760",ts:"#a09c97",gn:"#3a8c6e",gb:"#e8f4ef",rd:"#b85c4a",rb:"#f5eae7",bl:"#4a7ab5",bb:"#eaf0f8",ac:"#7c6f5e",ab:"#f0ece6"};
