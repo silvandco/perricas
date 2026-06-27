@@ -270,7 +270,7 @@ function App({onLogout}){
   async function delProf(id){if(profs.length<=1){alert("Mínimo un perfil.");return;}if(!confirm("¿Eliminar perfil y todos sus datos?"))return;await sb.del("perfiles",id);setProfs(ps=>ps.filter(p=>p.id!==id));setCtas(cs=>cs.filter(c=>c.perfil_id!==id));setCats(cs=>cs.filter(c=>c.perfil_id!==id));setMovs(ms=>ms.filter(m=>m.perfil_id!==id));if(pa===id)setPa(profs.find(p=>p.id!==id)?.id);setModal(null);}
 
   const NAV=[{id:"dashboard",ic:"◈",lb:"Dashboard"},{id:"movimientos",ic:"≡",lb:"Movimientos"},{id:"informe",ic:"✦",lb:"Informe"}];
-  const EDIT_MENU=[{id:"cuentas",ic:"⬡",lb:"Cuentas"},{id:"categorias",ic:"◻",lb:"Categorías"},{id:"importar",ic:"⬆",lb:"Importar BBVA"}];
+  const EDIT_MENU=[{id:"cuentas",ic:"⬡",lb:"Cuentas"},{id:"categorias",ic:"◻",lb:"Categorías"}];
   const [editOpen,setEditOpen]=useState(false);
   useEffect(()=>{if(!editOpen)return;const fn=()=>setEditOpen(false);setTimeout(()=>document.addEventListener("click",fn),0);return()=>document.removeEventListener("click",fn);},[editOpen]);
 
