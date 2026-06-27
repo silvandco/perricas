@@ -384,20 +384,7 @@ function App({onLogout}){
           h("p",{style:{margin:0,fontSize:"1.3rem",fontWeight:700,color:k.c,letterSpacing:"-.02em",fontFamily:"'Inter',system-ui,sans-serif"}},fmt(k.v))
         ))),
         h("div",{className:"g2"},
-          h(Card,null,
-            h("p",{style:{margin:"0 0 .65rem",fontWeight:600,fontSize:".82rem",color:C.tx}},"Evolución mensual"),
-            h("div",{style:{display:"flex",gap:".35rem",marginBottom:".5rem"}},h(Badge,{color:C.gn,bg:C.gb},"↑ Ingresos"),h(Badge,{color:C.rd,bg:C.rb},"↓ Gastos")),
-            h("div",{style:{display:"flex",gap:"3px",alignItems:"flex-end",height:90}},...evo.map((m,i)=>{
-              const mx=Math.max(...evo.flatMap(e=>[e.ing,e.gas]),1);
-              return h("div",{key:i,style:{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:1}},
-                h("div",{style:{width:"100%",display:"flex",gap:2,alignItems:"flex-end",height:80}},
-                  h("div",{style:{flex:1,background:C.gn,borderRadius:"2px 2px 0 0",opacity:.75,height:`${(m.ing/mx)*80}%`,minHeight:2},title:fmt(m.ing)}),
-                  h("div",{style:{flex:1,background:C.rd,borderRadius:"2px 2px 0 0",opacity:.75,height:`${(m.gas/mx)*80}%`,minHeight:2},title:fmt(m.gas)})
-                ),
-                h("span",{style:{color:C.ts,fontSize:".6rem"}},m.lb)
-              );
-            }))
-          ),
+          h(EvoMensual,{mMovs,mCtas,TIPOS}),
           h(Card,null,
             h("p",{style:{margin:"0 0 .65rem",fontWeight:600,fontSize:".82rem",color:C.tx}},"Por categoría"),
             gasCat.length===0?h("p",{style:{color:C.ts,fontSize:".82rem",marginTop:"1rem"}},"Sin gastos este mes."):
@@ -504,6 +491,87 @@ function App({onLogout}){
     modal==="editcuenta"&&ctaEditar&&h(CtaModal,{cta:ctaEditar,onSave:f=>editCta(ctaEditar.id,f),onClose:()=>{setModal(null);setCtaEditar(null);}}),
     modal==="categoria"&&h(CatModal,{onSave:addCat,onClose:()=>setModal(null)}),
     modal==="perfil"&&h(ProfModal,{profs,activo:pa,onCambiar:id=>{setPa(id);setModal(null);},onAdd:addProf,onDel:delProf,onClose:()=>setModal(null)})
+  );
+}
+
+// ── Evolución mensual con selector ───────────────────────────────────────────
+function EvoMensual({mMovs, mCtas, TIPOS}) {
+  const [modo, setModo] = useState("total"); // "total" | "tipo" | cuenta_id
+
+  // Calcular 6 meses
+  const meses = useMemo(()=>{
+    const ms=[];
+    for(let i=5;i>=0;i--){
+      const d=new Date();d.setDate(1);d.setMonth(d.getMonth()-i);
+      const key=d.toISOString().slice(0,7);
+      const lb=d.toLocaleDateString("es-ES",{month:"short"});
+      const mov=mMovs.filter(m=>m.fecha.startsWith(key));
+      ms.push({key,lb,mov});
+    }
+    return ms;
+  },[mMovs]);
+
+  // Opciones del selector
+  const opciones = useMemo(()=>[
+    {v:"total",l:"Total"},
+    ...Object.keys(mCtas.reduce((acc,c)=>{const t=TIPOS.find(x=>x.v===c.tipo)?.l||c.tipo;acc[t]=1;return acc;},{})).map(t=>({v:"tipo:"+t,l:t})),
+    ...mCtas.map(c=>({v:c.id,l:c.nombre,color:c.color}))
+  ],[mCtas]);
+
+  // Series a mostrar según modo
+  const series = useMemo(()=>{
+    if(modo==="total"){
+      return [{
+        label:"Ingresos",color:C.gn,
+        data:meses.map(m=>m.mov.filter(x=>x.tipo==="ingreso").reduce((s,x)=>s+x.importe,0))
+      },{
+        label:"Gastos",color:C.rd,
+        data:meses.map(m=>m.mov.filter(x=>x.tipo==="gasto").reduce((s,x)=>s+x.importe,0))
+      }];
+    } else if(modo.startsWith("tipo:")) {
+      const tipo=modo.slice(5);
+      const ctasDelTipo=mCtas.filter(c=>(TIPOS.find(x=>x.v===c.tipo)?.l||c.tipo)===tipo).map(c=>c.id);
+      return [{
+        label:"Ingresos",color:C.gn,
+        data:meses.map(m=>m.mov.filter(x=>x.tipo==="ingreso"&&ctasDelTipo.includes(x.cuenta_id)).reduce((s,x)=>s+x.importe,0))
+      },{
+        label:"Gastos",color:C.rd,
+        data:meses.map(m=>m.mov.filter(x=>x.tipo==="gasto"&&ctasDelTipo.includes(x.cuenta_id)).reduce((s,x)=>s+x.importe,0))
+      }];
+    } else {
+      const cta=mCtas.find(c=>c.id===modo);
+      return [{
+        label:"Ingresos",color:C.gn,
+        data:meses.map(m=>m.mov.filter(x=>x.tipo==="ingreso"&&x.cuenta_id===modo).reduce((s,x)=>s+x.importe,0))
+      },{
+        label:"Gastos",color:C.rd,
+        data:meses.map(m=>m.mov.filter(x=>x.tipo==="gasto"&&x.cuenta_id===modo).reduce((s,x)=>s+x.importe,0))
+      }];
+    }
+  },[modo,meses,mCtas]);
+
+  const mx=Math.max(...series.flatMap(s=>s.data),1);
+
+  return h(Card,null,
+    h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:".6rem",gap:".5rem",flexWrap:"wrap"}},
+      h("p",{style:{margin:0,fontWeight:600,fontSize:".82rem",color:C.tx}},"Evolución mensual"),
+      h("select",{value:modo,onChange:e=>setModo(e.target.value),style:{...IS,width:"auto",padding:".2rem .5rem",fontSize:".75rem"}},
+        ...opciones.map(o=>h("option",{key:o.v,value:o.v},o.l))
+      )
+    ),
+    h("div",{style:{display:"flex",gap:".35rem",marginBottom:".5rem"}},
+      h(Badge,{color:C.gn,bg:C.gb},"↑ Ingresos"),
+      h(Badge,{color:C.rd,bg:C.rb},"↓ Gastos")
+    ),
+    h("div",{style:{display:"flex",gap:"3px",alignItems:"flex-end",height:90}},
+      ...meses.map((m,i)=>h("div",{key:i,style:{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:1}},
+        h("div",{style:{width:"100%",display:"flex",gap:2,alignItems:"flex-end",height:80}},
+          h("div",{style:{flex:1,background:C.gn,borderRadius:"2px 2px 0 0",opacity:.75,height:`${(series[0].data[i]/mx)*80}%`,minHeight:2},title:fmt(series[0].data[i])}),
+          h("div",{style:{flex:1,background:C.rd,borderRadius:"2px 2px 0 0",opacity:.75,height:`${(series[1].data[i]/mx)*80}%`,minHeight:2},title:fmt(series[1].data[i])})
+        ),
+        h("span",{style:{color:C.ts,fontSize:".6rem"}},m.lb)
+      ))
+    )
   );
 }
 
