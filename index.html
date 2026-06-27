@@ -330,18 +330,23 @@ function App({onLogout}){
       // ── Sidebar ──────────────────────────────────────────────────────────────
       h("aside",{className:"perricas-sidebar"},
         h("div",{style:{background:C.sf,borderRadius:".875rem",border:`1px solid ${C.bd}`,padding:".9rem",marginBottom:".75rem"}},
-          h("p",{style:{margin:"0 0 .65rem",fontWeight:600,fontSize:".78rem",color:C.tx}},"Saldos"),
-          h("div",{style:{display:"flex",flexDirection:"column",gap:".5rem"}},
-            ...mCtas.map(c=>h("div",{key:c.id,style:{display:"flex",alignItems:"center",gap:".5rem"}},
-              h("span",{style:{width:8,height:8,borderRadius:"50%",background:c.color,flexShrink:0}}),
-              h("div",{style:{flex:1,minWidth:0}},
-                h("p",{style:{margin:0,color:C.tm,fontSize:".68rem",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},c.nombre),
-                h("p",{style:{margin:0,fontWeight:700,fontSize:".82rem",fontFamily:"'Inter',system-ui,sans-serif",color:(saldos[c.id]||0)>=0?C.gn:C.rd}},fmt(saldos[c.id]||0))
-              )
-            )),
-            h("div",{style:{borderTop:`1px solid ${C.bd}`,marginTop:".4rem",paddingTop:".5rem",display:"flex",justifyContent:"space-between",alignItems:"center"}},
-              h("span",{style:{fontSize:".68rem",color:C.tm,fontWeight:500}},"Total"),
-              h("span",{style:{fontWeight:700,fontSize:".85rem",fontFamily:"'Inter',system-ui,sans-serif",color:sTotal>=0?C.gn:C.rd}},fmt(sTotal))
+          h("p",{style:{margin:"0 0 .75rem",fontWeight:700,fontSize:".95rem",color:C.tx}},"Saldos"),
+          h("div",{style:{display:"flex",flexDirection:"column",gap:".65rem"}},
+            ...mCtas.map(c=>{
+              const movsDeEsta=mMovs.filter(m=>m.cuenta_id===c.id||m.cuenta_dest_id===c.id);
+              const ultimaFecha=movsDeEsta.length>0?movsDeEsta.map(m=>m.fecha).sort().reverse()[0]:null;
+              return h("div",{key:c.id,style:{display:"flex",alignItems:"flex-start",gap:".5rem"}},
+                h("span",{style:{width:9,height:9,borderRadius:"50%",background:c.color,flexShrink:0,marginTop:4}}),
+                h("div",{style:{flex:1,minWidth:0}},
+                  h("p",{style:{margin:0,color:C.tm,fontSize:".78rem",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},c.nombre),
+                  h("p",{style:{margin:".1rem 0 0",fontWeight:700,fontSize:".95rem",fontFamily:"'Inter',system-ui,sans-serif",color:(saldos[c.id]||0)>=0?C.gn:C.rd}},fmt(saldos[c.id]||0)),
+                  ultimaFecha&&h("p",{style:{margin:".1rem 0 0",fontSize:".68rem",color:C.ts,fontStyle:"italic"}},fmtD(ultimaFecha))
+                )
+              );
+            }),
+            h("div",{style:{borderTop:`1px solid ${C.bd}`,marginTop:".4rem",paddingTop:".6rem",display:"flex",justifyContent:"space-between",alignItems:"center"}},
+              h("span",{style:{fontSize:".78rem",color:C.tm,fontWeight:600}},"Total"),
+              h("span",{style:{fontWeight:700,fontSize:".95rem",fontFamily:"'Inter',system-ui,sans-serif",color:sTotal>=0?C.gn:C.rd}},fmt(sTotal))
             )
           )
         )
