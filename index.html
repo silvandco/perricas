@@ -181,6 +181,9 @@ function App({onLogout}){
   const[ctaEditar,setCtaEditar]=useState(null);
   const[movEditar,setMovEditar]=useState(null);
   const[fil,setFil]=useState({mes:tod().slice(0,7),cuenta:"",cat:""});
+  const[tabModo,setTabModo]=useState("meses");
+  const[rangoDesde,setRangoDesde]=useState(new Date(new Date().getFullYear(),0,1).toISOString().slice(0,7));
+  const[rangoHasta,setRangoHasta]=useState(new Date().toISOString().slice(0,7));
 
   const reload=useCallback(async()=>{
     try{
@@ -221,6 +224,7 @@ function App({onLogout}){
 
   const sTotal=Object.values(saldos).reduce((a,b)=>a+b,0);
 
+  // Movimientos filtrados para la vista de Movimientos (filtro mes+cuenta+cat)
   const mFil=useMemo(()=>mMovs.filter(m=>{
     const eM=!fil.mes||m.fecha.startsWith(fil.mes);
     const eC=!fil.cuenta||m.cuenta_id===fil.cuenta;
@@ -231,16 +235,29 @@ function App({onLogout}){
   const ingM=mFil.filter(m=>m.tipo==="ingreso").reduce((s,m)=>s+m.importe,0);
   const gasM=mFil.filter(m=>m.tipo==="gasto").reduce((s,m)=>s+m.importe,0);
 
-  const gasCat=useMemo(()=>{
-    const mp={};mFil.filter(m=>m.tipo==="gasto").forEach(m=>{mp[m.categoria_id]=(mp[m.categoria_id]||0)+m.importe;});
-    return Object.entries(mp).map(([id,v])=>{const c=mCats.find(x=>x.id===id);return{id,nombre:c?.nombre||"?",icono:c?.icono||"",value:v,color:PAL[Object.keys(mp).indexOf(id)%PAL.length]};}).sort((a,b)=>b.value-a.value);
-  },[mFil,mCats]);
+  // Movimientos del periodo del dashboard (tabModo/rangoDesde/rangoHasta)
+  const movsPeriodoDash=useMemo(()=>{
+    if(tabModo==="meses"){
+      // Últimos 12 meses
+      const desde=new Date();desde.setDate(1);desde.setMonth(desde.getMonth()-11);
+      const desdeKey=desde.toISOString().slice(0,7);
+      return mMovs.filter(m=>m.fecha.slice(0,7)>=desdeKey);
+    } else if(tabModo==="años"){
+      const desdeKey=String(new Date().getFullYear()-4);
+      return mMovs.filter(m=>m.fecha.startsWith(desdeKey)||m.fecha>desdeKey);
+    } else {
+      return mMovs.filter(m=>m.fecha.slice(0,7)>=rangoDesde&&m.fecha.slice(0,7)<=rangoHasta);
+    }
+  },[mMovs,tabModo,rangoDesde,rangoHasta]);
 
-  const evo=useMemo(()=>{
-    const ms=[];
-    for(let i=5;i>=0;i--){const d=new Date();d.setDate(1);d.setMonth(d.getMonth()-i);const k=d.toISOString().slice(0,7);const lb=d.toLocaleDateString("es-ES",{month:"short"});const mv=mMovs.filter(m=>m.fecha.startsWith(k));ms.push({lb,ing:mv.filter(m=>m.tipo==="ingreso").reduce((s,m)=>s+m.importe,0),gas:mv.filter(m=>m.tipo==="gasto").reduce((s,m)=>s+m.importe,0)});}
-    return ms;
-  },[mMovs]);
+  const gasCat=useMemo(()=>{
+    const mp={};movsPeriodoDash.filter(m=>m.tipo==="gasto").forEach(m=>{mp[m.categoria_id]=(mp[m.categoria_id]||0)+m.importe;});
+    return Object.entries(mp).map(([id,v])=>{const c=mCats.find(x=>x.id===id);return{id,nombre:c?.nombre||"?",icono:c?.icono||"",value:v,color:PAL[Object.keys(mp).indexOf(id)%PAL.length]};}).sort((a,b)=>b.value-a.value);
+  },[movsPeriodoDash,mCats]);
+
+  // KPIs del dashboard basados también en el periodo
+  const ingDash=movsPeriodoDash.filter(m=>m.tipo==="ingreso").reduce((s,m)=>s+m.importe,0);
+  const gasDash=movsPeriodoDash.filter(m=>m.tipo==="gasto").reduce((s,m)=>s+m.importe,0);
 
   async function addMov(f){const m={id:uid(),perfil_id:pa,tipo:f.tipo,fecha:f.fecha,importe:parseFloat(f.importe),concepto:f.concepto||null,cuenta_id:f.cuentaId,categoria_id:f.catId||null,cuenta_dest_id:f.cuentaDestId||null};await sb.upsert("movimientos",m);setMovs(ms=>[...ms,m]);setModal(null);}
   async function delMov(id){if(!confirm("¿Eliminar?"))return;await sb.del("movimientos",id);setMovs(ms=>ms.filter(m=>m.id!==id));}
@@ -276,7 +293,7 @@ function App({onLogout}){
   );
 
   // KPIs
-  const kpis=[{lb:"Saldo total",v:sTotal,c:C.ac,bg:C.ab,ic:"◈"},{lb:"Ingresos del mes",v:ingM,c:C.gn,bg:C.gb,ic:"↑"},{lb:"Gastos del mes",v:gasM,c:C.rd,bg:C.rb,ic:"↓"}];
+  const kpis=[{lb:"Saldo total",v:sTotal,c:C.ac,bg:C.ab,ic:"◈"},{lb:"Ingresos periodo",v:ingDash,c:C.gn,bg:C.gb,ic:"↑"},{lb:"Gastos periodo",v:gasDash,c:C.rd,bg:C.rb,ic:"↓"}];
 
   return h("div",{style:{minHeight:"100vh",background:C.bg,color:C.tx}},
     // Header
@@ -375,17 +392,21 @@ function App({onLogout}){
       h("main",{className:"perricas-content"},
 
       vista==="dashboard"&&h("div",null,
-        h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"1.1rem"}},
-          h("h2",{style:{margin:0,fontSize:"1rem",fontWeight:600}},prof?.icono," ",prof?.nombre),
-          h("input",{type:"month",value:fil.mes,onChange:e=>setFil(f=>({...f,mes:e.target.value})),style:{...IS,width:"auto",fontSize:".8rem",padding:".35rem .65rem"}})
+        h("div",{style:{display:"flex",alignItems:"center",marginBottom:"1.1rem"}},
+          h("h2",{style:{margin:0,fontSize:"1rem",fontWeight:600}},prof?.icono," ",prof?.nombre)
         ),
         h("div",{className:"g3"},...kpis.map(k=>h(Card,{key:k.lb,style:{background:k.bg,border:`1px solid ${k.c}22`}},
           h("p",{style:{margin:"0 0 .35rem",color:k.c,fontSize:".72rem",fontWeight:600,display:"flex",alignItems:"center",gap:".3rem"}},h("span",null,k.ic),k.lb),
           h("p",{style:{margin:0,fontSize:"1.3rem",fontWeight:700,color:k.c,letterSpacing:"-.02em",fontFamily:"'Inter',system-ui,sans-serif"}},fmt(k.v))
         ))),
-        h(EvoMensual,{mMovs,mCtas,TIPOS}),
+        h(EvoMensual,{mMovs,mCtas,TIPOS,tabModo,setTabModo,rangoDesde,setRangoDesde,rangoHasta,setRangoHasta}),
         h(Card,null,
-          h("p",{style:{margin:"0 0 .65rem",fontWeight:600,fontSize:".82rem",color:C.tx}},"Por categoría"),
+          h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:".65rem"}},
+            h("p",{style:{margin:0,fontWeight:600,fontSize:".82rem",color:C.tx}},"Por categoría"),
+            h("span",{style:{fontSize:".7rem",color:C.ts,fontStyle:"italic"}},
+              tabModo==="meses"?"Últimos 12 meses":tabModo==="años"?"Últimos 5 años":rangoDesde+" → "+rangoHasta
+            )
+          ),
           gasCat.length===0?h("p",{style:{color:C.ts,fontSize:".82rem",marginTop:"1rem"}},"Sin gastos este mes."):
           h("div",{style:{display:"flex",gap:".75rem",alignItems:"center"}},
             h(Donut,{slices:gasCat,size:84}),
@@ -493,11 +514,8 @@ function App({onLogout}){
 }
 
 // ── Evolución mensual con selector ───────────────────────────────────────────
-function EvoMensual({mMovs, mCtas, TIPOS}) {
+function EvoMensual({mMovs, mCtas, TIPOS, tabModo, setTabModo, rangoDesde, setRangoDesde, rangoHasta, setRangoHasta}) {
   const [modo, setModo] = useState("total");
-  const [tabModo, setTabModo] = useState("meses"); // "meses" | "años" | "rango"
-  const [rangoDesde, setRangoDesde] = useState(new Date(new Date().getFullYear(),0,1).toISOString().slice(0,7));
-  const [rangoHasta, setRangoHasta] = useState(new Date().toISOString().slice(0,7));
 
   // Últimos 6 meses para la gráfica
   const meses6 = useMemo(()=>{
